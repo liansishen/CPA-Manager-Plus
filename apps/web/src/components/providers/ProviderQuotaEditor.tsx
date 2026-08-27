@@ -59,6 +59,7 @@ export function ProviderQuotaEditor({ quota, onChange, disabled = false }: Provi
             : t(isSub2API ? 'ai_providers.sub2api_credentials_missing' : 'ai_providers.openai_quota_key_missing', {
                 defaultValue: isSub2API ? 'Sub2API credentials not configured' : 'API key not configured',
               })}
+        </span>
       </div>
       {quota.enabled && (
         <>

@@ -104,7 +104,6 @@ const buildCustomQuotaBindings = (
     Object.assign(bindings, next);
     return bindings;
   }, {});
-};
 
 const buildEmptyForm = (): OpenAIFormState => ({
   name: '',
