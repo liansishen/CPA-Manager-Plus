@@ -277,6 +277,19 @@ const parseSub2ApiWindows = (
   const remainingNumber = readNumber(remainingValue);
   if (usedNumber === null && limitNumber === null && remainingNumber === null) return [];
 
+  const usedPercent = readWeeklyValue(['weekly_usage_percent', 'weeklyUsagePercent']);
+  const directResetValue = readWeeklyValue([
+    'weekly_reset_at',
+    'weeklyResetAt',
+    'weekly_window_end',
+    'weeklyWindowEnd',
+  ]);
+  const directResetAtMs = resolveAbsoluteQuotaReset(directResetValue).resetAtMs;
+  const weeklyWindowStart = readWeeklyValue(['weekly_window_start', 'weeklyWindowStart']);
+  const weeklyWindowStartMs = resolveAbsoluteQuotaReset(weeklyWindowStart).resetAtMs;
+  const resetAt =
+    directResetAtMs ??
+    (weeklyWindowStartMs === null ? undefined : weeklyWindowStartMs + 7 * 24 * 60 * 60 * 1000);
   const quotaValue = {
     label: 'Weekly',
     used: usedNumber ?? used,
@@ -284,8 +297,8 @@ const parseSub2ApiWindows = (
     remaining:
       remainingNumber ??
       (usedNumber !== null && limitNumber !== null ? Math.max(0, limitNumber - usedNumber) : undefined),
-    usedPercent: readWeeklyValue(['weekly_usage_percent', 'weeklyUsagePercent']),
-    resetAt: readWeeklyValue(['weekly_reset_at', 'weeklyResetAt', 'weekly_window_end', 'weeklyWindowEnd']),
+    usedPercent,
+    resetAt,
     unit: 'USD',
   };
   const window = toQuotaWindow(quotaValue, data, 0, {}, t, observedAtMs);

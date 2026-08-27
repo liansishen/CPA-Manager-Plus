@@ -82,6 +82,7 @@ describe('buildCustomQuotaAccountWindows', () => {
           {
             status: 'active',
             weekly_usage_usd: 12.5,
+            weekly_window_start: '2026-08-25T22:17:49.148799+08:00',
             group: { weekly_limit_usd: 50 },
           },
         ],
@@ -95,6 +96,7 @@ describe('buildCustomQuotaAccountWindows', () => {
     expect(windows[0]).toMatchObject({
       id: 'sub2api-weekly',
       label: 'Weekly',
+      resetAtMs: Date.parse('2026-09-01T14:17:49.148Z'),
       remainingPercent: 75,
       usageLabel: '12.5 / 50 USD',
     });
