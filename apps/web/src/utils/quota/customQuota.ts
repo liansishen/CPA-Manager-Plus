@@ -233,8 +233,6 @@ const parseCustomGetWindows = (
     .filter((window): window is AccountQuotaWindow => Boolean(window));
 };
 
-const readWindowLabel = (value: unknown, fallback: string) =>
-  readString(readFirstPath(value, ['label', 'name', 'window', 'period', '__windowKey'])) || fallback;
 
 const parseSub2ApiWindows = (
   body: unknown,
