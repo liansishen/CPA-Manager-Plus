@@ -366,9 +366,7 @@ func mergeCustomQuotaBindings(base map[string]store.ManagerCustomQuotaBinding, s
 			}
 			binding.Headers = mergeCustomQuotaHeaders(previous.Headers, binding.Headers)
 		}
-		if binding.QuotaAPIKey != "" {
-			binding.QuotaAPIKeyConfigured = true
-		}
+		binding.QuotaAPIKeyConfigured = binding.QuotaAPIKey != ""
 		merged[key] = binding
 	}
 	return merged
