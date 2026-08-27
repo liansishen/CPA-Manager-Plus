@@ -1521,6 +1521,7 @@ export const requestAccountQuota = async (
         })
       );
     case 'codex':
+    default: {
       const quota = await fetchCodexQuota(target.file, t);
       const planLabel = getCodexPlanLabel(quota.planType ?? target.planType, t);
       return stampAccountQuotaFetchTime({
