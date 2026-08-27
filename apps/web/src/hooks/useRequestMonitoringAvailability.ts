@@ -12,6 +12,7 @@ export interface RequestMonitoringAvailability {
   managerServiceAvailable: boolean;
   modelPricesAvailable: boolean;
   serviceBase: string;
+  managerConfig: ReturnType<typeof usePanelFeatureAvailability>['managerConfig'];
   reason: RequestMonitoringUnavailableReason | '';
 }
 
@@ -23,6 +24,7 @@ export function useRequestMonitoringAvailability(): RequestMonitoringAvailabilit
     managerServiceAvailable: availability.managerServiceAvailable,
     modelPricesAvailable: availability.modelPricesAvailable,
     serviceBase: availability.managerServiceBase,
+    managerConfig: availability.managerConfig,
     reason: availability.reason,
   };
 }

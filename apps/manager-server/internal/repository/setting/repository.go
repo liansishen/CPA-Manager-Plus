@@ -290,6 +290,21 @@ func (r *repository) protectManagerConfig(cfg model.ManagerConfig) (model.Manage
 		return model.ManagerConfig{}, err
 	}
 	cfg.CPAConnection.ManagementKey = value
+	if cfg.CustomQuota.Bindings != nil {
+		protectedBindings := make(map[string]model.ManagerCustomQuotaBinding, len(cfg.CustomQuota.Bindings))
+		for key, binding := range cfg.CustomQuota.Bindings {
+			protectedKey, err := r.protector.ProtectString(binding.QuotaAPIKey)
+			if err != nil {
+				return model.ManagerConfig{}, err
+			}
+			binding.QuotaAPIKey = protectedKey
+			if protectedKey != "" {
+				binding.QuotaAPIKeyConfigured = true
+			}
+			protectedBindings[key] = binding
+		}
+		cfg.CustomQuota.Bindings = protectedBindings
+	}
 	return cfg, nil
 }
 
@@ -302,5 +317,20 @@ func (r *repository) unprotectManagerConfig(cfg model.ManagerConfig) (model.Mana
 		return model.ManagerConfig{}, err
 	}
 	cfg.CPAConnection.ManagementKey = value
+	if cfg.CustomQuota.Bindings != nil {
+		unprotectedBindings := make(map[string]model.ManagerCustomQuotaBinding, len(cfg.CustomQuota.Bindings))
+		for key, binding := range cfg.CustomQuota.Bindings {
+			unprotectedKey, err := r.protector.UnprotectString(binding.QuotaAPIKey)
+			if err != nil {
+				return model.ManagerConfig{}, err
+			}
+			binding.QuotaAPIKey = unprotectedKey
+			if unprotectedKey != "" {
+				binding.QuotaAPIKeyConfigured = true
+			}
+			unprotectedBindings[key] = binding
+		}
+		cfg.CustomQuota.Bindings = unprotectedBindings
+	}
 	return cfg, nil
 }

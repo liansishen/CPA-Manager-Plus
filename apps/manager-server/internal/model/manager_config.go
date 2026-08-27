@@ -5,7 +5,28 @@ type ManagerConfig struct {
 	Collector            ManagerCollectorConfig            `json:"collector"`
 	CodexInspection      ManagerCodexInspectionConfig      `json:"codexInspection"`
 	ExternalUsageService ManagerExternalUsageServiceConfig `json:"externalUsageService"`
+	CustomQuota          ManagerCustomQuotaConfig          `json:"customQuota,omitempty"`
 	UpdatedAtMS          int64                             `json:"updatedAtMs,omitempty"`
+}
+
+
+type ManagerCustomQuotaConfig struct {
+	Bindings map[string]ManagerCustomQuotaBinding `json:"bindings,omitempty"`
+}
+
+type ManagerCustomQuotaBinding struct {
+	Kind                  string            `json:"kind"`
+	URL                   string            `json:"url"`
+	AuthMode              string            `json:"authMode,omitempty"`
+	QuotaAPIKey           string            `json:"quotaApiKey,omitempty"`
+	QuotaAPIKeyConfigured bool              `json:"quotaApiKeyConfigured,omitempty"`
+	APIKeyHeader          string            `json:"apiKeyHeader,omitempty"`
+	Headers               map[string]string `json:"headers,omitempty"`
+	ProxyURL              string            `json:"proxyUrl,omitempty"`
+	Mapping               map[string]string `json:"mapping,omitempty"`
+	ProviderName          string            `json:"providerName,omitempty"`
+	APIKeyHash            string            `json:"apiKeyHash,omitempty"`
+	Enabled               *bool             `json:"enabled,omitempty"`
 }
 
 type ManagerCPAConnectionConfig struct {

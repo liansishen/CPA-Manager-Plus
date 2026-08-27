@@ -23,6 +23,7 @@ export interface PanelFeatureAvailability {
   panelHostMode: PanelHostMode;
   panelBase: string;
   managerServiceBase: string;
+  managerConfig: ManagerConfig | null;
   managerServiceAvailable: boolean;
   requestMonitoringAvailable: boolean;
   modelPricesAvailable: boolean;
@@ -52,6 +53,7 @@ const buildUnavailableState = (
   panelHostMode: input.panelHostedByUsageService ? 'manager_embedded' : 'external_panel',
   panelBase: normalizeBase(input.panelBase),
   managerServiceBase: '',
+  managerConfig: null,
   managerServiceAvailable: false,
   requestMonitoringAvailable: false,
   modelPricesAvailable: false,
@@ -91,6 +93,7 @@ export function resolvePanelFeatureAvailability(
     panelHostMode: input.panelHostedByUsageService ? 'manager_embedded' : 'external_panel',
     panelBase: normalizeBase(input.panelBase),
     managerServiceBase,
+    managerConfig: input.managerConfig,
     managerServiceAvailable: true,
     requestMonitoringAvailable,
     modelPricesAvailable: true,
@@ -149,6 +152,7 @@ const initialAvailability: PanelFeatureAvailability = {
   panelHostMode: 'external_panel',
   panelBase: '',
   managerServiceBase: '',
+  managerConfig: null,
   managerServiceAvailable: false,
   requestMonitoringAvailable: false,
   modelPricesAvailable: false,
@@ -162,6 +166,7 @@ const demoAvailability: PanelFeatureAvailability = {
   checking: false,
   panelHostMode: 'manager_embedded',
   panelBase: DEMO_API_BASE,
+  managerConfig: null,
   managerServiceBase: DEMO_API_BASE,
   managerServiceAvailable: true,
   requestMonitoringAvailable: true,

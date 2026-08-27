@@ -14,6 +14,21 @@ export interface ModelEntry {
   thinking?: Record<string, unknown>;
 }
 
+
+export interface OpenAIQuotaFormState {
+  enabled: boolean;
+  kind: 'sub2api' | 'custom_get';
+  url: string;
+  authMode: 'bearer' | 'header' | 'none';
+  quotaApiKey: string;
+  quotaApiKeyConfigured?: boolean;
+  apiKeyHeader: string;
+  proxyUrl: string;
+  headers: Array<{ key: string; value: string }>;
+  mapping: Record<string, string>;
+  hasBinding?: boolean;
+}
+
 export interface OpenAIFormState {
   name: string;
   priority?: number;
@@ -28,6 +43,7 @@ export interface OpenAIFormState {
 
 export type OpenAIFormApiKeyEntry = Omit<ApiKeyEntry, 'weight'> & {
   weight?: CredentialWeightInputValue;
+  quota?: OpenAIQuotaFormState;
 };
 
 export type GeminiFormState = Omit<GeminiKeyConfig, 'headers' | 'models' | 'weight' | 'disableCooling'> & {

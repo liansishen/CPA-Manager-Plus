@@ -11,7 +11,10 @@ import { SelectionCheckbox } from '@/components/ui/SelectionCheckbox';
 import { OpenAIKeyTestStatusIndicator } from '@/components/providers';
 import { CoolingPolicySelect } from '@/components/providers/CoolingPolicySelect';
 import { apiCallApi, getApiCallErrorDetails, modelsApi, providersApi } from '@/services/api';
+import { usageServiceApi, type ManagerConfig, type ManagerCustomQuotaBinding } from '@/services/api/usageService';
 import { useConfigStore, useNotificationStore } from '@/stores';
+import { useAuthStore } from '@/stores/useAuthStore';
+import { useUsageServiceStore } from '@/stores/useUsageServiceStore';
 import {
   coolingPolicyFromOverride,
   coolingPolicyToOverride,
@@ -29,6 +32,9 @@ import {
 } from '@/features/aiProviders/model/keyTestStatuses';
 import type { ModelInfo } from '@/utils/models';
 import type { OpenAIFormApiKeyEntry, OpenAIFormState } from '@/components/providers';
+import type { OpenAIQuotaFormState } from '@/components/providers/types';
+import { sha256Hex } from '@/utils/apiKeyHash';
+import { buildCustomQuotaBindingKey } from '@/utils/quota/customQuota';
 import {
   MAX_CREDENTIAL_WEIGHT,
   getCredentialWeightComparisonValue,
@@ -50,6 +56,149 @@ interface OpenAIEditDrawerProps {
 type OpenAIFormBaseline = ReturnType<typeof buildOpenAIBaseline>;
 
 const OPENAI_TEST_TIMEOUT_MS = 30_000;
+const CUSTOM_QUOTA_MAPPING_FIELDS = [
+  ['windows', 'Windows path'],
+  ['label', 'Window label path'],
+  ['used', 'Used path'],
+  ['limit', 'Limit path'],
+  ['remaining', 'Remaining path'],
+  ['usedPercent', 'Used percent path'],
+  ['resetAt', 'Reset timestamp path'],
+  ['resetAfterSeconds', 'Reset countdown path'],
+  ['unit', 'Unit path'],
+] as const;
+
+
+const buildEmptyQuota = (): OpenAIQuotaFormState => ({
+  enabled: false,
+  kind: 'custom_get',
+  url: '',
+  authMode: 'bearer',
+  quotaApiKey: '',
+  apiKeyHeader: 'Authorization',
+  proxyUrl: '',
+  headers: [],
+  mapping: {},
+  hasBinding: false,
+});
+
+const buildOpenAIFormEntry = (): OpenAIFormApiKeyEntry => ({
+  ...buildApiKeyEntry(),
+  quota: buildEmptyQuota(),
+});
+
+const normalizeQuotaForComparison = (quota?: OpenAIQuotaFormState) => {
+  if (!quota) return null;
+  const url = String(quota.url ?? '').trim();
+  const quotaApiKey = String(quota.quotaApiKey ?? '').trim();
+  const hasValues =
+    Boolean(quota.hasBinding) ||
+    Boolean(quota.enabled) ||
+    Boolean(url) ||
+    Boolean(quotaApiKey) ||
+    Boolean(quota.quotaApiKeyConfigured) ||
+    Boolean(quota.proxyUrl?.trim()) ||
+    quota.headers.length > 0 ||
+    Object.keys(quota.mapping).length > 0;
+  if (!hasValues) return null;
+  return {
+    enabled: Boolean(quota.enabled),
+    kind: quota.kind,
+    url,
+    authMode: quota.authMode,
+    quotaApiKey,
+    quotaApiKeyConfigured: Boolean(quota.quotaApiKeyConfigured),
+    apiKeyHeader: quota.apiKeyHeader.trim(),
+    proxyUrl: quota.proxyUrl.trim(),
+    headers: normalizeKeyHeaders(buildHeaderObject(quota.headers)),
+    mapping: Object.fromEntries(
+      Object.entries(quota.mapping)
+        .map(([key, value]) => [key.trim(), String(value ?? '').trim()] as const)
+        .filter(([key, value]) => key && value)
+        .sort(([left], [right]) => left.localeCompare(right))
+    ),
+  };
+};
+
+
+const findQuotaBinding = (
+  managerConfig: ManagerConfig | null,
+  providerName: string,
+  apiKey: string
+): ManagerCustomQuotaBinding | undefined => {
+  const bindings = managerConfig?.customQuota?.bindings;
+  if (!bindings) return undefined;
+  const bindingKey = buildCustomQuotaBindingKey(providerName, apiKey);
+  if (bindingKey && bindings[bindingKey]) return bindings[bindingKey];
+  const apiKeyHash = sha256Hex(apiKey);
+  return Object.values(bindings).find(
+    (binding) =>
+      binding.providerName?.trim() === providerName.trim() && binding.apiKeyHash === apiKeyHash
+  );
+};
+
+const quotaBindingToForm = (binding?: ManagerCustomQuotaBinding): OpenAIQuotaFormState => {
+  if (!binding) return buildEmptyQuota();
+  return {
+    enabled: binding.enabled !== false,
+    kind: binding.kind === 'sub2api' ? 'sub2api' : 'custom_get',
+    url: binding.url ?? '',
+    authMode:
+      binding.authMode === 'header' || binding.authMode === 'none' ? binding.authMode : 'bearer',
+    quotaApiKey: '',
+    quotaApiKeyConfigured: Boolean(binding.quotaApiKeyConfigured),
+    apiKeyHeader: binding.apiKeyHeader ?? 'Authorization',
+    proxyUrl: binding.proxyUrl ?? '',
+    headers: headersToEntries(binding.headers),
+    mapping: { ...(binding.mapping ?? {}) },
+    hasBinding: true,
+  };
+};
+
+const buildCustomQuotaBindings = (
+  providerName: string,
+  entries: OpenAIFormApiKeyEntry[]
+): Record<string, ManagerCustomQuotaBinding> => {
+  const bindings: Record<string, ManagerCustomQuotaBinding> = {};
+  entries.forEach((entry) => {
+    const apiKey = String(entry.apiKey ?? '').trim();
+    const quota = entry.quota;
+    const bindingKey = buildCustomQuotaBindingKey(providerName, apiKey);
+    if (!quota || !bindingKey) return;
+    const url = quota.url.trim();
+    const hasValues =
+      Boolean(quota.hasBinding) ||
+      Boolean(quota.enabled) ||
+      Boolean(url) ||
+      Boolean(quota.quotaApiKey.trim()) ||
+      Boolean(quota.quotaApiKeyConfigured) ||
+      Boolean(quota.proxyUrl.trim()) ||
+      quota.headers.length > 0 ||
+      Object.keys(quota.mapping).length > 0;
+    if (!hasValues || !url) return;
+    const headers = buildHeaderObject(quota.headers);
+    const mapping = Object.fromEntries(
+      Object.entries(quota.mapping)
+        .map(([key, value]) => [key.trim(), String(value ?? '').trim()] as const)
+        .filter(([key, value]) => key && value)
+    );
+    bindings[bindingKey] = {
+      kind: quota.kind,
+      url,
+      authMode: quota.authMode,
+      quotaApiKey: quota.quotaApiKey.trim(),
+      quotaApiKeyConfigured: Boolean(quota.quotaApiKeyConfigured || quota.quotaApiKey.trim()),
+      apiKeyHeader: quota.apiKeyHeader.trim() || undefined,
+      headers: Object.keys(headers).length ? headers : undefined,
+      proxyUrl: quota.proxyUrl.trim() || undefined,
+      mapping: Object.keys(mapping).length ? mapping : undefined,
+      providerName: providerName.trim(),
+      apiKeyHash: sha256Hex(apiKey),
+      enabled: quota.enabled,
+    };
+  });
+  return bindings;
+};
 
 const buildEmptyForm = (): OpenAIFormState => ({
   name: '',
@@ -57,7 +206,7 @@ const buildEmptyForm = (): OpenAIFormState => ({
   prefix: '',
   baseUrl: '',
   headers: [],
-  apiKeyEntries: [buildApiKeyEntry()],
+  apiKeyEntries: [buildOpenAIFormEntry()],
   modelEntries: [{ name: '', alias: '' }],
   testModel: undefined,
   disableCooling: 'inherit',
@@ -92,6 +241,7 @@ const normalizeApiKeyEntries = (entries: OpenAIFormApiKeyEntry[]) =>
       proxyUrl: string;
       authIndex: string;
       headers: ReturnType<typeof normalizeKeyHeaders>;
+      quota: ReturnType<typeof normalizeQuotaForComparison>;
     }>
   >((acc, entry) => {
     const apiKey = String(entry?.apiKey ?? '').trim();
@@ -99,8 +249,9 @@ const normalizeApiKeyEntries = (entries: OpenAIFormApiKeyEntry[]) =>
     const proxyUrl = String(entry?.proxyUrl ?? '').trim();
     const authIndex = normalizeAuthIndex(entry?.authIndex) ?? '';
     const headers = normalizeKeyHeaders(entry?.headers);
-    if (!apiKey && weight === null && !proxyUrl && !authIndex && headers.length === 0) return acc;
-    acc.push({ apiKey, weight, proxyUrl, authIndex, headers });
+    const quota = normalizeQuotaForComparison(entry?.quota);
+    if (!apiKey && weight === null && !proxyUrl && !authIndex && headers.length === 0 && !quota) return acc;
+    acc.push({ apiKey, weight, proxyUrl, authIndex, headers, quota });
     return acc;
   }, []);
 
@@ -136,6 +287,7 @@ const areNormalizedApiKeyEntriesEqual = (
     )
       return false;
     if (!areKeyValueEntriesEqual(left.headers, right.headers)) return false;
+    if (JSON.stringify(left.quota) !== JSON.stringify(right.quota)) return false;
   }
   return true;
 };
@@ -162,6 +314,10 @@ export function OpenAIEditDrawer({
   const { showNotification } = useNotificationStore();
   const config = useConfigStore((state) => state.config);
   const updateConfigValue = useConfigStore((state) => state.updateConfigValue);
+  const apiBase = useAuthStore((state) => state.apiBase);
+  const managementKey = useAuthStore((state) => state.managementKey);
+  const serviceBase = useUsageServiceStore((state) => state.serviceBase);
+  const quotaServiceBase = serviceBase || apiBase;
 
   const [providers, setProviders] = useState<OpenAIProviderConfig[]>(
     () => config?.openaiCompatibility ?? []
@@ -174,6 +330,8 @@ export function OpenAIEditDrawer({
     buildOpenAIBaseline(buildEmptyForm())
   );
   const [loaded, setLoaded] = useState(false);
+  const [managerConfig, setManagerConfig] = useState<ManagerConfig | null>(null);
+  const [managerConfigLoaded, setManagerConfigLoaded] = useState(false);
   const [isTestingKeys, setIsTestingKeys] = useState(false);
   const [testModel, setTestModel] = useState('');
   const [testStatus, setTestStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
@@ -188,6 +346,36 @@ export function OpenAIEditDrawer({
   const [discoveredModels, setDiscoveredModels] = useState<ModelInfo[]>([]);
   const [modelDiscoverySearch, setModelDiscoverySearch] = useState('');
   const [modelDiscoverySelected, setModelDiscoverySelected] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!open) {
+      setManagerConfig(null);
+      setManagerConfigLoaded(false);
+      return;
+    }
+    if (!quotaServiceBase || !managementKey) {
+      setManagerConfig(null);
+      setManagerConfigLoaded(true);
+      return;
+    }
+    let cancelled = false;
+    setManagerConfigLoaded(false);
+    usageServiceApi
+      .getManagerConfig(quotaServiceBase, managementKey)
+      .then((response) => {
+        if (cancelled) return;
+        setManagerConfig(response.config);
+        setManagerConfigLoaded(true);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setManagerConfig(null);
+        setManagerConfigLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [managementKey, open, quotaServiceBase]);
 
   const initialData = useMemo(() => {
     if (editIndex === null) return undefined;
@@ -210,8 +398,12 @@ export function OpenAIEditDrawer({
   );
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setLoaded(false);
+      return;
+    }
     let cancelled = false;
+    setLoaded(false);
     setLoading(true);
     setError('');
     providersApi
@@ -237,9 +429,16 @@ export function OpenAIEditDrawer({
   }, [open, t, updateConfigValue]);
 
   useEffect(() => {
-    if (!open || !loaded) return;
+    if (!open || !loaded || !managerConfigLoaded) return;
     if (initialData) {
       const modelEntries = modelsToEntries(initialData.models);
+      const sourceEntries = initialData.apiKeyEntries?.length
+        ? initialData.apiKeyEntries
+        : [buildApiKeyEntry()];
+      const apiKeyEntries = sourceEntries.map((entry) => ({
+        ...entry,
+        quota: quotaBindingToForm(findQuotaBinding(managerConfig, initialData.name, entry.apiKey)),
+      }));
       const seededForm: OpenAIFormState = {
         name: initialData.name,
         priority: initialData.priority,
@@ -247,9 +446,7 @@ export function OpenAIEditDrawer({
         baseUrl: initialData.baseUrl,
         headers: headersToEntries(initialData.headers),
         modelEntries,
-        apiKeyEntries: initialData.apiKeyEntries?.length
-          ? initialData.apiKeyEntries
-          : [buildApiKeyEntry()],
+        apiKeyEntries,
         disableCooling: coolingPolicyFromOverride(initialData.disableCooling),
       };
       setForm(seededForm);
@@ -269,7 +466,7 @@ export function OpenAIEditDrawer({
     setTestStatus('idle');
     setTestMessage('');
     setKeyTestStatuses([]);
-  }, [open, loaded, initialData]);
+  }, [open, loaded, initialData, managerConfig, managerConfigLoaded]);
 
   useEffect(() => {
     if (
@@ -648,6 +845,44 @@ export function OpenAIEditDrawer({
       );
       return;
     }
+    const hasInvalidQuota = form.apiKeyEntries.some((entry) => {
+      const quota = entry.quota;
+      if (!quota?.enabled) return false;
+      if (!quota.url.trim()) return true;
+      const requiresKey = quota.authMode !== 'none';
+      return requiresKey && !quota.quotaApiKey.trim() && !quota.quotaApiKeyConfigured;
+    });
+    if (hasInvalidQuota) {
+      showNotification(
+        t('ai_providers.openai_quota_invalid', {
+          defaultValue: 'Enabled quota lookup needs a URL and authentication key.',
+        }),
+        'error'
+      );
+      return;
+    }
+    const hasQuotaState = form.apiKeyEntries.some((entry) =>
+      Boolean(normalizeQuotaForComparison(entry.quota))
+    );
+    const existingQuotaBindings = managerConfig?.customQuota?.bindings ?? {};
+    const quotaProviderNames = new Set(
+      [name, initialData?.name].filter((value): value is string => Boolean(value))
+    );
+    const existingQuotaBindingEntries = Object.entries(existingQuotaBindings).filter(
+      ([, binding]) => !quotaProviderNames.has(binding.providerName?.trim() ?? '')
+    );
+    const hasExistingQuotaBindings = existingQuotaBindingEntries.length < Object.keys(existingQuotaBindings).length;
+    const shouldSaveCustomQuota = hasQuotaState || hasExistingQuotaBindings;
+    if (shouldSaveCustomQuota && (!managerConfig || !quotaServiceBase || !managementKey)) {
+      showNotification(
+        t('ai_providers.openai_quota_service_unavailable', {
+          defaultValue: 'The Manager Server is unavailable; quota settings were not saved.',
+        }),
+        'error'
+      );
+      return;
+    }
+    const customQuotaBindings = buildCustomQuotaBindings(name, form.apiKeyEntries);
     if (!canSave) return;
     setSaving(true);
     try {
@@ -680,6 +915,23 @@ export function OpenAIEditDrawer({
         await providersApi.updateOpenAIProvider(providers[editIndex].name, editIndex, payload);
       } else {
         await providersApi.createOpenAIProvider(payload);
+      }
+      if (shouldSaveCustomQuota && managerConfig && quotaServiceBase && managementKey) {
+        const managerResponse = await usageServiceApi.saveManagerConfig(
+          quotaServiceBase,
+          {
+            ...managerConfig,
+            customQuota: {
+              ...managerConfig.customQuota,
+              bindings: {
+                ...Object.fromEntries(existingQuotaBindingEntries),
+                ...customQuotaBindings,
+              },
+            },
+          },
+          managementKey
+        );
+        setManagerConfig(managerResponse.config);
       }
       let syncedProviders = nextList;
       try {
@@ -714,6 +966,9 @@ export function OpenAIEditDrawer({
     t,
     testModel,
     updateConfigValue,
+    managerConfig,
+    managementKey,
+    quotaServiceBase,
   ]);
 
   const modelSelectOptions = useMemo(() => {
@@ -729,7 +984,7 @@ export function OpenAIEditDrawer({
   }, [form.modelEntries]);
 
   const renderKeyEntries = () => {
-    const list = form.apiKeyEntries.length ? form.apiKeyEntries : [buildApiKeyEntry()];
+    const list = form.apiKeyEntries.length ? form.apiKeyEntries : [buildOpenAIFormEntry()];
     const updateEntry = (idx: number, field: keyof OpenAIFormApiKeyEntry, value: string) => {
       const next = list.map((entry, i) => (i === idx ? { ...entry, [field]: value } : entry));
       setForm((prev) => ({ ...prev, apiKeyEntries: next }));
@@ -746,12 +1001,32 @@ export function OpenAIEditDrawer({
     };
     const removeEntry = (idx: number) => {
       const next = list.filter((_, i) => i !== idx);
-      setForm((prev) => ({ ...prev, apiKeyEntries: next.length ? next : [buildApiKeyEntry()] }));
+      setForm((prev) => ({
+        ...prev,
+        apiKeyEntries: next.length ? next : [buildOpenAIFormEntry()],
+      }));
       setKeyTestStatuses((prev) => removeKeyTestStatusAtIndex(prev, idx, list.length));
     };
     const addEntry = () => {
-      setForm((prev) => ({ ...prev, apiKeyEntries: [...list, buildApiKeyEntry()] }));
+      setForm((prev) => ({
+        ...prev,
+        apiKeyEntries: [...list, buildOpenAIFormEntry()],
+      }));
       setKeyTestStatuses((prev) => appendIdleKeyTestStatus(prev, list.length));
+    };
+
+    const updateQuota = (idx: number, patch: Partial<OpenAIQuotaFormState>) => {
+      const next = list.map((entry, i) =>
+        i === idx
+          ? { ...entry, quota: { ...buildEmptyQuota(), ...entry.quota, ...patch } }
+          : entry
+      );
+      setForm((prev) => ({ ...prev, apiKeyEntries: next }));
+    };
+    const updateQuotaMapping = (idx: number, field: string, value: string) => {
+      const entry = list[idx];
+      const quota = entry?.quota ?? buildEmptyQuota();
+      updateQuota(idx, { mapping: { ...quota.mapping, [field]: value } });
     };
 
     return (
@@ -786,6 +1061,7 @@ export function OpenAIEditDrawer({
             const canTestKey =
               Boolean(entry.apiKey?.trim() || normalizeAuthIndex(entry.authIndex)) &&
               hasConfiguredModels;
+            const quota = entry.quota ?? buildEmptyQuota();
             return (
               <div key={index} className={styles.keyTableRow}>
                 <div className={styles.keyTableColIndex}>{index + 1}</div>
@@ -858,6 +1134,147 @@ export function OpenAIEditDrawer({
                   >
                     {t('common.delete')}
                   </Button>
+                </div>
+                <div className={styles.keyQuotaConfig}>
+                  <div className={styles.keyQuotaHeader}>
+                    <label className={styles.keyQuotaToggle}>
+                      <input
+                        type="checkbox"
+                        checked={quota.enabled}
+                        onChange={(event) => updateQuota(index, { enabled: event.target.checked })}
+                        disabled={saving || disabled || isTestingKeys}
+                      />
+                      <span>
+                        {t('ai_providers.openai_quota_enabled', { defaultValue: 'Enable quota lookup' })}
+                      </span>
+                    </label>
+                    <span className={styles.keyQuotaStatus}>
+                      {quota.quotaApiKeyConfigured
+                        ? t('ai_providers.openai_quota_key_configured', { defaultValue: 'API key configured' })
+                        : t('ai_providers.openai_quota_key_missing', { defaultValue: 'API key not configured' })}
+                    </span>
+                  </div>
+                  <div className={styles.keyQuotaFields}>
+                    <label className={styles.keyQuotaField}>
+                      <span>{t('ai_providers.openai_quota_type', { defaultValue: 'Type' })}</span>
+                      <select
+                        value={quota.kind}
+                        onChange={(event) =>
+                          updateQuota(index, { kind: event.target.value as OpenAIQuotaFormState['kind'] })
+                        }
+                        disabled={saving || disabled || isTestingKeys}
+                      >
+                        <option value="sub2api">Sub2API</option>
+                        <option value="custom_get">Custom GET JSON</option>
+                      </select>
+                    </label>
+                    <label className={styles.keyQuotaField}>
+                      <span>{t('ai_providers.openai_quota_url', { defaultValue: 'Quota URL' })}</span>
+                      <input
+                        type="url"
+                        value={quota.url}
+                        onChange={(event) => updateQuota(index, { url: event.target.value })}
+                        disabled={saving || disabled || isTestingKeys}
+                        className={`input ${styles.keyQuotaInput}`}
+                        placeholder="https://..."
+                      />
+                    </label>
+                    <label className={styles.keyQuotaField}>
+                      <span>{t('ai_providers.openai_quota_auth', { defaultValue: 'Authentication' })}</span>
+                      <select
+                        value={quota.authMode}
+                        onChange={(event) =>
+                          updateQuota(index, {
+                            authMode: event.target.value as OpenAIQuotaFormState['authMode'],
+                          })
+                        }
+                        disabled={saving || disabled || isTestingKeys}
+                      >
+                        <option value="bearer">Bearer</option>
+                        <option value="header">Header</option>
+                        <option value="none">None</option>
+                      </select>
+                    </label>
+                    {quota.authMode === 'header' && (
+                      <label className={styles.keyQuotaField}>
+                        <span>{t('ai_providers.openai_quota_auth_header', { defaultValue: 'API key header' })}</span>
+                        <input
+                          type="text"
+                          value={quota.apiKeyHeader}
+                          onChange={(event) => updateQuota(index, { apiKeyHeader: event.target.value })}
+                          disabled={saving || disabled || isTestingKeys}
+                          className={`input ${styles.keyQuotaInput}`}
+                          placeholder="X-API-Key"
+                        />
+                      </label>
+                    )}
+                    {quota.authMode !== 'none' && (
+                      <label className={styles.keyQuotaField}>
+                        <span>{t('ai_providers.openai_quota_api_key', { defaultValue: 'Quota API key' })}</span>
+                        <input
+                          type="password"
+                          value={quota.quotaApiKey}
+                          onChange={(event) =>
+                            updateQuota(index, {
+                              quotaApiKey: event.target.value,
+                              quotaApiKeyConfigured: false,
+                            })
+                          }
+                          disabled={saving || disabled || isTestingKeys}
+                          className={`input ${styles.keyQuotaInput}`}
+                          placeholder={
+                            quota.quotaApiKeyConfigured
+                              ? t('ai_providers.openai_quota_key_placeholder', { defaultValue: 'Configured; enter to replace' })
+                              : 'sk-...'
+                          }
+                          autoComplete="new-password"
+                        />
+                      </label>
+                    )}
+                    <label className={styles.keyQuotaField}>
+                      <span>{t('common.proxy_url')}</span>
+                      <input
+                        type="url"
+                        value={quota.proxyUrl}
+                        onChange={(event) => updateQuota(index, { proxyUrl: event.target.value })}
+                        disabled={saving || disabled || isTestingKeys}
+                        className={`input ${styles.keyQuotaInput}`}
+                        placeholder="http://proxy:8080"
+                      />
+                    </label>
+                  </div>
+                  <HeaderInputList
+                    entries={quota.headers}
+                    onChange={(headers) => updateQuota(index, { headers })}
+                    addLabel={t('common.custom_headers_add')}
+                    keyPlaceholder={t('common.custom_headers_key_placeholder')}
+                    valuePlaceholder={t('common.custom_headers_value_placeholder')}
+                    removeButtonTitle={t('common.delete')}
+                    removeButtonAriaLabel={t('common.delete')}
+                    disabled={saving || disabled || isTestingKeys}
+                  />
+                  {quota.kind === 'custom_get' && (
+                    <div className={styles.keyQuotaMapping}>
+                      <div className={styles.keyQuotaMappingTitle}>
+                        {t('ai_providers.openai_quota_mapping', { defaultValue: 'JSON field paths' })}
+                      </div>
+                      <div className={styles.keyQuotaFields}>
+                        {CUSTOM_QUOTA_MAPPING_FIELDS.map(([field, label]) => (
+                          <label key={field} className={styles.keyQuotaField}>
+                            <span>{label}</span>
+                            <input
+                              type="text"
+                              value={quota.mapping[field] ?? ''}
+                              onChange={(event) => updateQuotaMapping(index, field, event.target.value)}
+                              disabled={saving || disabled || isTestingKeys}
+                              className={`input ${styles.keyQuotaInput}`}
+                              placeholder={`$.${field}`}
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             );

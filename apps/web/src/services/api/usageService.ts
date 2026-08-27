@@ -221,6 +221,36 @@ export interface ManagerExternalUsageServiceConfig {
   serviceBase: string;
 }
 
+
+export type ManagerCustomQuotaKind = 'sub2api' | 'custom_get';
+export type ManagerCustomQuotaAuthMode = 'bearer' | 'header' | 'none';
+
+export interface ManagerCustomQuotaBinding {
+  kind: ManagerCustomQuotaKind;
+  url: string;
+  authMode?: ManagerCustomQuotaAuthMode;
+  quotaApiKey?: string;
+  quotaApiKeyConfigured?: boolean;
+  apiKeyHeader?: string;
+  headers?: Record<string, string>;
+  proxyUrl?: string;
+  mapping?: Record<string, string>;
+  providerName?: string;
+  apiKeyHash?: string;
+  enabled?: boolean;
+}
+
+export interface ManagerCustomQuotaConfig {
+  bindings?: Record<string, ManagerCustomQuotaBinding>;
+}
+
+export interface CustomQuotaQueryResponse {
+  bindingKey: string;
+  status: number;
+  body: unknown;
+  fetchedAtMs: number;
+}
+
 export type ManagerCodexInspectionScheduleMode = 'interval' | 'time_points';
 export type ManagerCodexInspectionAutoActionMode = 'none' | 'enable' | 'disable' | 'delete';
 
@@ -256,6 +286,7 @@ export interface ManagerConfig {
   collector: ManagerCollectorConfig;
   codexInspection?: ManagerCodexInspectionConfig;
   externalUsageService: ManagerExternalUsageServiceConfig;
+  customQuota?: ManagerCustomQuotaConfig;
   updatedAtMs?: number;
 }
 
@@ -2643,6 +2674,34 @@ export const usageServiceApi = {
       const response = await axios.put<ManagerConfigResponse>(
         buildUrl(base, '/usage-service/config'),
         { config },
+        {
+          timeout: USAGE_SERVICE_TIMEOUT_MS,
+          headers: authHeaders(managementKey),
+        }
+      );
+      return response.data;
+    });
+  },
+
+
+  queryCustomQuota: async (
+    base: string,
+    bindingKey: string,
+    managementKey?: string
+  ): Promise<CustomQuotaQueryResponse> => {
+    if (__DEMO_SITE__ && isDemoMode()) {
+      return {
+        bindingKey,
+        status: 200,
+        body: {},
+        fetchedAtMs: Date.now(),
+      };
+    }
+
+    return withUsageServiceError(async () => {
+      const response = await axios.post<CustomQuotaQueryResponse>(
+        buildUrl(base, '/v0/management/custom-quota/query'),
+        { bindingKey },
         {
           timeout: USAGE_SERVICE_TIMEOUT_MS,
           headers: authHeaders(managementKey),

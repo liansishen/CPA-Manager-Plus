@@ -40,7 +40,7 @@ import {
   type AccountSortState,
   type MonitoringAccountOverviewMode,
 } from '@/features/monitoring/accountOverviewState';
-import { buildMonitoringAccountQuotaTargetsByRowId } from '@/features/monitoring/accountOverviewQuotaTargets';
+import { buildMonitoringCustomQuotaTargetsByRowId } from '@/features/monitoring/accountOverviewQuotaTargets';
 import {
   AccountExpandedDetails,
   AccountOverviewCard,
@@ -186,8 +186,9 @@ export function MonitoringCenterPage() {
         apiBase,
         managementKey,
         serviceBase: requestMonitoringAvailability.serviceBase,
+        customQuota: requestMonitoringAvailability.managerConfig?.customQuota,
       }),
-    [apiBase, managementKey, requestMonitoringAvailability.serviceBase]
+    [apiBase, managementKey, requestMonitoringAvailability.managerConfig?.customQuota, requestMonitoringAvailability.serviceBase]
   );
   const pageTransitionLayer = usePageTransitionLayer();
   const isCurrentLayer = pageTransitionLayer ? pageTransitionLayer.status === 'current' : true;
@@ -970,8 +971,19 @@ export function MonitoringCenterPage() {
   }, [accountPage, accountPagination.currentPage, overallLoading, setCurrentAccountPage]);
 
   const accountQuotaTargetsByRowId = useMemo(
-    () => buildMonitoringAccountQuotaTargetsByRowId(accountRows, accountAuthStateByRowId),
-    [accountAuthStateByRowId, accountRows]
+    () =>
+      buildMonitoringCustomQuotaTargetsByRowId(
+        accountRows,
+        accountAuthStateByRowId,
+        config?.openaiCompatibility || [],
+        requestMonitoringAvailability.managerConfig
+      ),
+    [
+      accountAuthStateByRowId,
+      accountRows,
+      config?.openaiCompatibility,
+      requestMonitoringAvailability.managerConfig,
+    ]
   );
   const headerSnapshotLookup = useMemo(
     () =>
@@ -1302,7 +1314,10 @@ export function MonitoringCenterPage() {
                 target,
                 result: {
                   status: 'fulfilled' as const,
-                  value: await requestAccountQuota(target, t),
+                  value: await requestAccountQuota(target, t, {
+                    serviceBase: requestMonitoringAvailability.serviceBase,
+                    managementKey,
+                  }),
                 },
               };
             } catch (reason: unknown) {
@@ -1362,6 +1377,8 @@ export function MonitoringCenterPage() {
       accountQuotaTargetsByRowId,
       commitAccountQuotaState,
       headerSnapshotLookup,
+      managementKey,
+      requestMonitoringAvailability.serviceBase,
       t,
     ]
   );

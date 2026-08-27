@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
+import type { ManagerConfig, ManagerCustomQuotaBinding } from '@/services/api/usageService';
+import type { OpenAIProviderConfig } from '@/types';
 import type { MonitoringAccountRow } from './hooks/useMonitoringData';
 import type { MonitoringAccountAuthState } from './accountOverviewState';
-import { buildMonitoringAccountQuotaTargetsByRowId } from './accountOverviewQuotaTargets';
+import {
+  buildMonitoringAccountQuotaTargetsByRowId,
+  buildMonitoringCustomQuotaTargetsByRowId,
+} from './accountOverviewQuotaTargets';
+import { buildCustomQuotaBindingKey } from '@/utils/quota/customQuota';
 
 const createAccountRow = (overrides: Partial<MonitoringAccountRow> = {}): MonitoringAccountRow => ({
   id: overrides.id ?? 'account@example.com',
@@ -11,6 +17,7 @@ const createAccountRow = (overrides: Partial<MonitoringAccountRow> = {}): Monito
   accountMasked: overrides.accountMasked ?? 'acc***@example.com',
   authLabels: overrides.authLabels ?? [],
   authIndices: overrides.authIndices ?? [],
+  sourceKeys: overrides.sourceKeys ?? [],
   channels: overrides.channels ?? [],
   totalCalls: overrides.totalCalls ?? 0,
   successCalls: overrides.successCalls ?? 0,
@@ -272,5 +279,84 @@ describe('accountOverviewQuotaTargets', () => {
       { provider: 'antigravity', fileName: 'antigravity.json' },
     ]);
     expect(result.get('same@example.com')).toBeUndefined();
+  });
+});
+
+
+const createManagerConfig = (
+  bindingKey: string,
+  binding: ManagerCustomQuotaBinding
+): ManagerConfig => ({
+  customQuota: { bindings: { [bindingKey]: binding } },
+} as ManagerConfig);
+
+describe('custom OpenAI quota targets', () => {
+  it('creates a source-only target only for an entry used by the account row', () => {
+    const providerName = 'Gateway';
+    const apiKey = 'sk-entry';
+    const bindingKey = buildCustomQuotaBindingKey(providerName, apiKey);
+    const binding: ManagerCustomQuotaBinding = {
+      kind: 'custom_get',
+      url: 'https://quota.example.com/usage',
+      providerName,
+      enabled: true,
+    };
+    const provider: OpenAIProviderConfig = {
+      name: providerName,
+      baseUrl: 'https://gateway.example.com',
+      apiKeyEntries: [{ apiKey }],
+    };
+    const row = createAccountRow({ sourceKeys: ['openai:0:0'] });
+
+    const result = buildMonitoringCustomQuotaTargetsByRowId(
+      [row],
+      new Map(),
+      [provider],
+      createManagerConfig(bindingKey, binding)
+    );
+
+    expect(result.get(row.id)).toMatchObject([
+      {
+        provider: 'openai',
+        sourceKey: 'openai:0:0',
+        customQuotaBindingKey: bindingKey,
+        fileName: providerName,
+        file: { name: 'openai:0:0.custom-quota' },
+      },
+    ]);
+
+    const unusedResult = buildMonitoringCustomQuotaTargetsByRowId(
+      [createAccountRow({ sourceKeys: [] })],
+      new Map(),
+      [provider],
+      createManagerConfig(bindingKey, binding)
+    );
+    expect(unusedResult.get(row.id)).toEqual([]);
+  });
+
+  it('skips disabled custom quota bindings', () => {
+    const providerName = 'Gateway';
+    const apiKey = 'sk-entry';
+    const bindingKey = buildCustomQuotaBindingKey(providerName, apiKey);
+    const provider: OpenAIProviderConfig = {
+      name: providerName,
+      baseUrl: 'https://gateway.example.com',
+      apiKeyEntries: [{ apiKey }],
+    };
+    const row = createAccountRow({ sourceKeys: ['openai:0:0'] });
+
+    const result = buildMonitoringCustomQuotaTargetsByRowId(
+      [row],
+      new Map(),
+      [provider],
+      createManagerConfig(bindingKey, {
+        kind: 'custom_get',
+        url: 'https://quota.example.com/usage',
+        providerName,
+        enabled: false,
+      })
+    );
+
+    expect(result.get(row.id)).toEqual([]);
   });
 });

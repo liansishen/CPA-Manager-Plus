@@ -12,6 +12,7 @@ import (
 	dashboardcontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/dashboard"
 	healthcontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/health"
 	managerconfigcontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/managerconfig"
+	customquotacontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/customquota"
 	modelpricecontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/modelprice"
 	monitoringcontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/monitoring"
 	panelcontroller "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/controller/panel"
@@ -30,6 +31,7 @@ func New(appCtx *app.Context) http.Handler {
 	systemHandler := &systemcontroller.Handler{App: appCtx}
 	setupHandler := &setupcontroller.Handler{App: appCtx}
 	managerConfigHandler := &managerconfigcontroller.Handler{App: appCtx}
+	customQuotaHandler := &customquotacontroller.Handler{App: appCtx}
 	usageHandler := &usagecontroller.Handler{App: appCtx}
 	modelPriceHandler := &modelpricecontroller.Handler{App: appCtx}
 	apiKeyAliasHandler := &apikeyaliascontroller.Handler{App: appCtx}
@@ -48,6 +50,7 @@ func New(appCtx *app.Context) http.Handler {
 	mux.HandleFunc("/status", middleware.WithCORS(appCtx.Config, systemHandler.Status))
 	mux.HandleFunc("/usage-service/info", middleware.WithCORS(appCtx.Config, systemHandler.Info))
 	mux.HandleFunc("/usage-service/config", middleware.WithCORS(appCtx.Config, managerConfigHandler.Handle))
+	mux.HandleFunc("/v0/management/custom-quota/query", middleware.WithCORS(appCtx.Config, customQuotaHandler.Handle))
 	mux.HandleFunc("/usage-service/account-processing-policy", middleware.WithCORS(appCtx.Config, automationHandler.Handle))
 	mux.HandleFunc("/usage-service/quota-cooldowns", middleware.WithCORS(appCtx.Config, quotaCooldownHandler.Handle))
 	mux.HandleFunc("/setup", middleware.WithCORS(appCtx.Config, setupHandler.Setup))

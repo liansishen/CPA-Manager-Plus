@@ -3,6 +3,7 @@ package managerconfig
 import (
 	"context"
 	"errors"
+	"net/url"
 	"strings"
 	"time"
 
@@ -33,6 +34,95 @@ type Service struct {
 	collector *collectorservice.Service
 }
 
+
+func publicManagerConfig(cfg store.ManagerConfig) store.ManagerConfig {
+	if cfg.CustomQuota.Bindings == nil {
+		return cfg
+	}
+	publicBindings := make(map[string]store.ManagerCustomQuotaBinding, len(cfg.CustomQuota.Bindings))
+	for key, binding := range cfg.CustomQuota.Bindings {
+		if strings.TrimSpace(binding.QuotaAPIKey) != "" {
+			binding.QuotaAPIKeyConfigured = true
+			binding.QuotaAPIKey = ""
+		}
+		binding.Headers = redactCustomQuotaHeaders(binding.Headers)
+		publicBindings[key] = binding
+	}
+	cfg.CustomQuota.Bindings = publicBindings
+	return cfg
+}
+
+func ValidateCustomQuotaConfig(cfg store.ManagerCustomQuotaConfig) error {
+	for bindingKey, binding := range cfg.Bindings {
+		if strings.TrimSpace(bindingKey) == "" {
+			return errors.New("custom quota binding key is required")
+		}
+		switch strings.ToLower(strings.TrimSpace(binding.Kind)) {
+		case "sub2api", "custom_get":
+		default:
+			return errors.New("custom quota kind must be sub2api or custom_get")
+		}
+		parsed, err := url.Parse(strings.TrimSpace(binding.URL))
+		if err != nil || parsed.Host == "" || parsed.User != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || strings.ContainsAny(parsed.Host, "\r\n") {
+			return errors.New("custom quota url must be an http or https url without credentials")
+		}
+		if err := validateCustomQuotaURLQuery(parsed.RawQuery); err != nil {
+			return err
+		}
+		proxyURL := strings.TrimSpace(binding.ProxyURL)
+		if proxyURL != "" {
+			parsedProxy, proxyErr := url.Parse(proxyURL)
+			if proxyErr != nil || parsedProxy.Host == "" || parsedProxy.User != nil || (parsedProxy.Scheme != "http" && parsedProxy.Scheme != "https") || strings.ContainsAny(parsedProxy.Host, "\r\n") {
+				return errors.New("custom quota proxyUrl must be an http or https url without credentials")
+			}
+			if err := validateCustomQuotaURLQuery(parsedProxy.RawQuery); err != nil {
+				return err
+			}
+		}
+		if strings.ContainsAny(binding.QuotaAPIKey, "\r\n") {
+			return errors.New("custom quota API key is invalid")
+		}
+		switch strings.ToLower(strings.TrimSpace(binding.AuthMode)) {
+		case "", "bearer", "header", "none":
+		default:
+			return errors.New("custom quota authMode must be bearer, header, or none")
+		}
+		if err := validateCustomQuotaHeaderName(binding.APIKeyHeader); err != nil {
+			return err
+		}
+		for name, value := range binding.Headers {
+			if strings.TrimSpace(name) == "" {
+				return errors.New("custom quota header name is invalid")
+			}
+			if err := validateCustomQuotaHeaderName(name); err != nil {
+				return err
+			}
+			if strings.ContainsAny(value, "\r\n") {
+				return errors.New("custom quota header values are invalid")
+			}
+		}
+	}
+	return nil
+}
+
+func validateCustomQuotaURLQuery(rawQuery string) error {
+	query, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return errors.New("custom quota url is invalid")
+	}
+	for name := range query {
+		normalized := strings.ToLower(strings.NewReplacer("-", "", "_", "").Replace(strings.TrimSpace(name)))
+		switch normalized {
+		case "key", "apikey", "accesskey", "token", "accesstoken", "authtoken", "authorization", "credential", "password", "secret":
+			return errors.New("custom quota url must not contain credential query parameters")
+		}
+		if strings.Contains(normalized, "token") || strings.Contains(normalized, "secret") || strings.Contains(normalized, "password") {
+			return errors.New("custom quota url must not contain credential query parameters")
+		}
+	}
+	return nil
+}
+
 func New(cfg config.Config, store *store.Store, collector *collectorservice.Service) *Service {
 	return &Service{
 		cfg:       cfg,
@@ -57,10 +147,16 @@ func (s *Service) Get(ctx context.Context) (Response, error) {
 		}
 	}
 	return Response{
-		Config:   cfg,
+		Config:   publicManagerConfig(cfg),
 		Source:   string(source),
 		CPAUsage: cpaUsage,
 	}, nil
+}
+
+
+func (s *Service) ResolveManagerConfig(ctx context.Context) (store.ManagerConfig, bool, error) {
+	cfg, _, found, err := s.ResolveManagerConfigWithSource(ctx)
+	return cfg, found, err
 }
 
 func (s *Service) Update(ctx context.Context, submitted store.ManagerConfig) (Response, error) {
@@ -69,6 +165,9 @@ func (s *Service) Update(ctx context.Context, submitted store.ManagerConfig) (Re
 		return Response{}, err
 	}
 	if err := model.ValidateCodexInspectionConfig(submitted.CodexInspection); err != nil {
+		return Response{}, err
+	}
+	if err := ValidateCustomQuotaConfig(submitted.CustomQuota); err != nil {
 		return Response{}, err
 	}
 	next := s.MergeSubmittedManagerConfig(current, submitted)
@@ -113,7 +212,7 @@ func (s *Service) Update(ctx context.Context, submitted store.ManagerConfig) (Re
 		}
 		_ = s.collector.Stop(context.Background())
 		return Response{
-			Config: next,
+			Config: publicManagerConfig(next),
 			Source: string(SourceDB),
 		}, nil
 	}
@@ -130,7 +229,7 @@ func (s *Service) Update(ctx context.Context, submitted store.ManagerConfig) (Re
 		_ = s.collector.Stop(context.Background())
 	}
 	return Response{
-		Config: next,
+		Config: publicManagerConfig(next),
 		Source: string(SourceDB),
 	}, nil
 }
@@ -243,7 +342,135 @@ func (s *Service) MergeSubmittedManagerConfig(base store.ManagerConfig, submitte
 	next.ExternalUsageService.Enabled = false
 	next.ExternalUsageService.ServiceBase = ""
 
+	if submitted.CustomQuota.Bindings != nil {
+		next.CustomQuota.Bindings = mergeCustomQuotaBindings(next.CustomQuota.Bindings, submitted.CustomQuota.Bindings)
+	}
+
 	return next
+}
+
+
+func mergeCustomQuotaBindings(base map[string]store.ManagerCustomQuotaBinding, submitted map[string]store.ManagerCustomQuotaBinding) map[string]store.ManagerCustomQuotaBinding {
+	merged := make(map[string]store.ManagerCustomQuotaBinding, len(submitted))
+	for key, incoming := range submitted {
+		binding := normalizeCustomQuotaBinding(incoming)
+		if previous, ok := base[key]; ok {
+			if binding.QuotaAPIKey == "" {
+				binding.QuotaAPIKey = previous.QuotaAPIKey
+			}
+			if binding.Enabled == nil {
+				binding.Enabled = previous.Enabled
+			}
+			if previous.QuotaAPIKey != "" {
+				binding.QuotaAPIKeyConfigured = true
+			}
+			binding.Headers = mergeCustomQuotaHeaders(previous.Headers, binding.Headers)
+		}
+		if binding.QuotaAPIKey != "" {
+			binding.QuotaAPIKeyConfigured = true
+		}
+		merged[key] = binding
+	}
+	return merged
+}
+
+func normalizeCustomQuotaBinding(binding store.ManagerCustomQuotaBinding) store.ManagerCustomQuotaBinding {
+	binding.Kind = strings.ToLower(strings.TrimSpace(binding.Kind))
+	binding.URL = strings.TrimSpace(binding.URL)
+	binding.AuthMode = strings.ToLower(strings.TrimSpace(binding.AuthMode))
+	binding.QuotaAPIKey = strings.TrimSpace(binding.QuotaAPIKey)
+	binding.APIKeyHeader = strings.TrimSpace(binding.APIKeyHeader)
+	binding.ProxyURL = strings.TrimSpace(binding.ProxyURL)
+	binding.ProviderName = strings.TrimSpace(binding.ProviderName)
+	binding.APIKeyHash = strings.TrimSpace(binding.APIKeyHash)
+	binding.Headers = cloneStringMap(binding.Headers)
+	binding.Mapping = cloneStringMap(binding.Mapping)
+	return binding
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if values == nil {
+		return nil
+	}
+	cloned := make(map[string]string, len(values))
+	for key, value := range values {
+		cloned[strings.TrimSpace(key)] = strings.TrimSpace(value)
+	}
+	return cloned
+}
+
+func isSensitiveCustomQuotaHeader(name string) bool {
+	normalized := strings.ToLower(strings.NewReplacer("-", "", "_", "").Replace(strings.TrimSpace(name)))
+	for _, token := range []string{"authorization", "auth", "key", "token", "secret", "password", "credential", "cookie"} {
+		if strings.Contains(normalized, token) {
+			return true
+		}
+	}
+	return false
+}
+
+func redactCustomQuotaHeaders(headers map[string]string) map[string]string {
+	if headers == nil {
+		return nil
+	}
+	redacted := make(map[string]string, len(headers))
+	for name, value := range headers {
+		if isSensitiveCustomQuotaHeader(name) && strings.TrimSpace(value) != "" {
+			redacted[name] = ""
+			continue
+		}
+		redacted[name] = value
+	}
+	return redacted
+}
+
+func mergeCustomQuotaHeaders(base map[string]string, submitted map[string]string) map[string]string {
+	if submitted == nil {
+		return nil
+	}
+	merged := make(map[string]string, len(submitted))
+	for name, value := range submitted {
+		if strings.TrimSpace(value) == "" && isSensitiveCustomQuotaHeader(name) {
+			for previousName, previousValue := range base {
+				if strings.EqualFold(previousName, name) && strings.TrimSpace(previousValue) != "" {
+					value = previousValue
+					break
+				}
+			}
+		}
+		merged[name] = value
+	}
+	return merged
+}
+
+func isValidCustomQuotaHeaderName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		char := name[i]
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') {
+			continue
+		}
+		switch char {
+		case '!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func validateCustomQuotaHeaderName(name string) error {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return nil
+	}
+	if !isValidCustomQuotaHeaderName(trimmed) {
+		return errors.New("custom quota header name is invalid")
+	}
+	return nil
 }
 
 func SetupFromManagerConfig(cfg store.ManagerConfig) store.Setup {

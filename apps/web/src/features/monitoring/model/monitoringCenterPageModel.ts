@@ -49,6 +49,8 @@ import {
   findCodexProviderWindowMatch,
   resolveCodexUsageQuotaScope,
 } from '@/utils/quota';
+import { buildCustomQuotaAccountWindows } from '@/utils/quota/customQuota';
+import { usageServiceApi } from '@/services/api/usageService';
 import {
   buildObservedCodexQuotaFromHeaderSnapshot,
   getHeaderSnapshotErrorCode,
@@ -1236,6 +1238,8 @@ export const getAccountQuotaProviderLabel = (
       return t('kimi_quota.title');
     case 'xai':
       return t('xai_quota.title');
+    case 'openai':
+      return t('ai_providers.openai_quota_title', { defaultValue: 'OpenAI-compatible quota' });
     case 'codex':
     default:
       return t('codex_quota.title');
@@ -1252,6 +1256,10 @@ const getAccountQuotaEmptyMessage = (provider: MonitoringAccountQuotaProvider, t
       return t('kimi_quota.empty_data');
     case 'xai':
       return t('xai_quota.empty_data');
+    case 'openai':
+      return t('ai_providers.openai_quota_empty', {
+        defaultValue: 'No quota windows were returned.',
+      });
     case 'codex':
     default:
       return t('codex_quota.empty_windows');
@@ -1396,9 +1404,15 @@ export const buildObservedCodexAccountQuotaEntry = (
   };
 };
 
+export type AccountQuotaRequestScope = {
+  serviceBase: string;
+  managementKey?: string;
+};
+
 export const requestAccountQuota = async (
   target: MonitoringAccountQuotaTarget,
-  t: TFunction
+  t: TFunction,
+  requestScope?: AccountQuotaRequestScope
 ): Promise<AccountQuotaEntry> => {
   switch (target.provider) {
     case 'antigravity': {
@@ -1452,6 +1466,39 @@ export const requestAccountQuota = async (
       return stampAccountQuotaFetchTime({
         ...buildBaseAccountQuotaEntry(target, t, metaLabels),
         windows: billing.officialApiHealth ? [] : buildXaiAccountQuotaWindows(billing, t),
+      });
+    }
+    case 'openai': {
+      const bindingKey = target.customQuotaBindingKey;
+      const binding = target.customQuotaBinding;
+      if (!bindingKey || !binding || !requestScope?.serviceBase) {
+        throw new Error(
+          t('monitoring.custom_quota_config_missing', {
+            defaultValue: 'Custom quota lookup is not configured for this account.',
+          })
+        );
+      }
+      const response = await usageServiceApi.queryCustomQuota(
+        requestScope.serviceBase,
+        bindingKey,
+        requestScope.managementKey
+      );
+      if (response.status < 200 || response.status >= 300) {
+        throw new Error(
+          t('monitoring.custom_quota_http_error', {
+            status: response.status,
+            defaultValue: `Custom quota endpoint returned HTTP ${response.status}.`,
+          })
+        );
+      }
+      return stampAccountQuotaFetchTime({
+        ...buildBaseAccountQuotaEntry(target, t),
+        windows: buildCustomQuotaAccountWindows(
+          response.body,
+          binding,
+          t,
+          response.fetchedAtMs || Date.now()
+        ),
       });
     }
     case 'codex':

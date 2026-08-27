@@ -1,0 +1,192 @@
+package managerconfig
+
+import (
+	"testing"
+
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/store"
+)
+
+func TestPublicManagerConfigRedactsCustomQuotaSecrets(t *testing.T) {
+	cfg := store.ManagerConfig{
+		CustomQuota: store.ManagerCustomQuotaConfig{
+			Bindings: map[string]store.ManagerCustomQuotaBinding{
+				"binding": {
+					Kind:         "custom_get",
+					URL:          "https://quota.example.com/usage",
+					QuotaAPIKey:  "quota-secret",
+					Headers:      map[string]string{"Authorization": "header-secret", "X-Client": "manager"},
+				},
+			},
+		},
+	}
+
+	public := publicManagerConfig(cfg)
+	binding := public.CustomQuota.Bindings["binding"]
+	if binding.QuotaAPIKey != "" || !binding.QuotaAPIKeyConfigured {
+		t.Fatalf("quota API key was not redacted: %#v", binding)
+	}
+	if binding.Headers["Authorization"] != "" {
+		t.Fatalf("authorization header was not redacted: %#v", binding.Headers)
+	}
+	if binding.Headers["X-Client"] != "manager" {
+		t.Fatalf("non-sensitive header changed: %#v", binding.Headers)
+	}
+	if cfg.CustomQuota.Bindings["binding"].QuotaAPIKey != "quota-secret" {
+		t.Fatal("public config redaction mutated the stored config")
+	}
+}
+
+func TestMergeCustomQuotaBindingsPreservesRedactedSensitiveHeaders(t *testing.T) {
+	base := map[string]store.ManagerCustomQuotaBinding{
+		"binding": {
+			Kind:        "custom_get",
+			URL:         "https://quota.example.com/usage",
+			Headers:     map[string]string{"Authorization": "header-secret", "X-Client": "manager"},
+			QuotaAPIKey: "quota-secret",
+		},
+	}
+	submitted := map[string]store.ManagerCustomQuotaBinding{
+		"binding": {
+			Kind:        "custom_get",
+			URL:         "https://quota.example.com/usage",
+			Headers:     map[string]string{"authorization": "", "X-Client": "updated"},
+		},
+	}
+
+	merged := mergeCustomQuotaBindings(base, submitted)["binding"]
+	if merged.Headers["authorization"] != "header-secret" {
+		t.Fatalf("redacted authorization header was not preserved: %#v", merged.Headers)
+	}
+	if merged.Headers["X-Client"] != "updated" {
+		t.Fatalf("submitted non-sensitive header was not applied: %#v", merged.Headers)
+	}
+	if merged.QuotaAPIKey != "quota-secret" {
+		t.Fatal("quota API key was not preserved")
+	}
+}
+
+func TestValidateCustomQuotaConfigRejectsInvalidHeaderName(t *testing.T) {
+	err := ValidateCustomQuotaConfig(store.ManagerCustomQuotaConfig{
+		Bindings: map[string]store.ManagerCustomQuotaBinding{
+			"binding": {
+				Kind:    "custom_get",
+				URL:     "https://quota.example.com/usage",
+				Headers: map[string]string{"X-Test\r\nInjected": "value"},
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected invalid custom quota header name to fail validation")
+	}
+}
+
+func TestValidateCustomQuotaConfigRejectsInvalidProxyAndQuotaKey(t *testing.T) {
+	cases := []struct {
+		name    string
+		binding store.ManagerCustomQuotaBinding
+	}{
+		{
+			name: "proxy scheme",
+			binding: store.ManagerCustomQuotaBinding{
+				Kind:      "custom_get",
+				URL:       "https://quota.example.com/usage",
+				ProxyURL:  "ftp://proxy.example.com",
+			},
+		},
+		{
+			name: "quota key newline",
+			binding: store.ManagerCustomQuotaBinding{
+				Kind:         "custom_get",
+				URL:          "https://quota.example.com/usage",
+				QuotaAPIKey:  "quota\r\nsecret",
+			},
+		},
+		{
+			name: "header token",
+			binding: store.ManagerCustomQuotaBinding{
+				Kind:    "custom_get",
+				URL:     "https://quota.example.com/usage",
+				Headers: map[string]string{"X Invalid": "value"},
+			},
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := ValidateCustomQuotaConfig(store.ManagerCustomQuotaConfig{
+				Bindings: map[string]store.ManagerCustomQuotaBinding{"binding": testCase.binding},
+			})
+			if err == nil {
+				t.Fatal("expected invalid custom quota binding to fail validation")
+			}
+		})
+	}
+}
+
+func TestMergeCustomQuotaBindingsDerivesQuotaAPIKeyConfigured(t *testing.T) {
+	submitted := map[string]store.ManagerCustomQuotaBinding{
+		"binding": {
+			Kind:                  "custom_get",
+			URL:                   "https://quota.example.com/usage",
+			QuotaAPIKeyConfigured: true,
+		},
+	}
+	merged := mergeCustomQuotaBindings(nil, submitted)["binding"]
+	if merged.QuotaAPIKeyConfigured {
+		t.Fatal("quota API key configured flag must not be trusted from submitted config")
+	}
+
+	submitted["binding"] = store.ManagerCustomQuotaBinding{
+		Kind:        "custom_get",
+		URL:         "https://quota.example.com/usage",
+		QuotaAPIKey: "quota-secret",
+	}
+	merged = mergeCustomQuotaBindings(nil, submitted)["binding"]
+	if !merged.QuotaAPIKeyConfigured {
+		t.Fatal("configured quota API key was not reflected in derived flag")
+	}
+
+	base := map[string]store.ManagerCustomQuotaBinding{
+		"binding": {QuotaAPIKeyConfigured: true},
+	}
+	merged = mergeCustomQuotaBindings(base, map[string]store.ManagerCustomQuotaBinding{
+		"binding": {Kind: "custom_get", URL: "https://quota.example.com/usage"},
+	})["binding"]
+	if merged.QuotaAPIKeyConfigured {
+		t.Fatal("legacy configured flag without a key must not be preserved")
+	}
+}
+
+func TestValidateCustomQuotaConfigRejectsCredentialQueryParameter(t *testing.T) {
+	cases := []struct {
+		name    string
+		binding store.ManagerCustomQuotaBinding
+	}{
+		{
+			name:    "quota URL",
+			binding: store.ManagerCustomQuotaBinding{Kind: "custom_get", URL: "https://quota.example.com/usage?api_key=secret"},
+		},
+		{
+			name:    "proxy URL",
+			binding: store.ManagerCustomQuotaBinding{Kind: "custom_get", URL: "https://quota.example.com/usage", ProxyURL: "http://proxy.example.com?access_token=secret"},
+		},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := ValidateCustomQuotaConfig(store.ManagerCustomQuotaConfig{
+				Bindings: map[string]store.ManagerCustomQuotaBinding{"binding": testCase.binding},
+			})
+			if err == nil {
+				t.Fatal("expected credential query parameter to fail validation")
+			}
+		})
+	}
+
+	if err := ValidateCustomQuotaConfig(store.ManagerCustomQuotaConfig{
+		Bindings: map[string]store.ManagerCustomQuotaBinding{
+			"binding": {Kind: "custom_get", URL: "https://quota.example.com/usage?account=team-a"},
+		},
+	}); err != nil {
+		t.Fatalf("ordinary query parameter was rejected: %v", err)
+	}
+}

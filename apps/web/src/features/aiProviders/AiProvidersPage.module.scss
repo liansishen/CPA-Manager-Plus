@@ -884,6 +884,106 @@
   min-height: 38px;
   text-align: center;
 }
+.keyQuotaConfig {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+  width: 100%;
+  min-width: 0;
+  padding-top: $spacing-sm;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.keyQuotaHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-sm;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.keyQuotaToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-xs;
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.keyQuotaToggle span {
+  overflow-wrap: anywhere;
+}
+
+.keyQuotaStatus {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.keyQuotaFields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: $spacing-sm;
+  min-width: 0;
+}
+
+.keyQuotaField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.keyQuotaField > span {
+  overflow-wrap: anywhere;
+}
+
+.keyQuotaInput {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+}
+
+.keyQuotaMapping {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+  min-width: 0;
+  padding-top: $spacing-xs;
+}
+
+.keyQuotaMappingTitle {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.keyQuotaConfig :global(.header-input-list) {
+  width: 100%;
+  min-width: 0;
+}
+
+.keyQuotaConfig :global(.header-input-row) {
+  min-width: 0;
+}
+
+@include mobile {
+  .keyQuotaFields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .keyQuotaHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
 
 .addKeyButton {
   align-self: auto;

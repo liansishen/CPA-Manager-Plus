@@ -1,4 +1,9 @@
-import type { AuthFileItem } from '@/types';
+import type { AuthFileItem, OpenAIProviderConfig } from '@/types';
+import type { ManagerConfig, ManagerCustomQuotaBinding } from '@/services/api/usageService';
+import {
+  buildMonitoringCustomQuotaSources,
+  type MonitoringCustomQuotaSource,
+} from '@/utils/quota/customQuota';
 import {
   isAntigravityFile,
   isClaudeFile,
@@ -13,7 +18,19 @@ import {
 import type { MonitoringAccountAuthState } from './accountOverviewState';
 import type { MonitoringAccountRow } from './hooks/useMonitoringData';
 
-export type MonitoringAccountQuotaProvider = 'antigravity' | 'claude' | 'codex' | 'kimi' | 'xai';
+export type MonitoringAccountQuotaProvider =
+  | 'antigravity'
+  | 'claude'
+  | 'codex'
+  | 'kimi'
+  | 'openai'
+  | 'xai';
+
+type MonitoringCustomQuotaTargetFields = {
+  sourceKey: string;
+  customQuotaBindingKey: string;
+  customQuotaBinding: ManagerCustomQuotaBinding;
+};
 
 export type MonitoringAccountQuotaTarget = {
   key: string;
@@ -24,6 +41,9 @@ export type MonitoringAccountQuotaTarget = {
   file: AuthFileItem;
   accountId: string | null;
   planType: string | null;
+  sourceKey?: string;
+  customQuotaBindingKey?: string;
+  customQuotaBinding?: ManagerCustomQuotaBinding;
 };
 
 const readAuthFileQuotaLabel = (file: AuthFileItem, authIndex: string) => {
@@ -68,7 +88,6 @@ const resolveActiveQuotaProvidersForRow = (
       .map((value) => normalizeAuthIndex(value))
       .filter((value): value is string => Boolean(value))
   );
-  if (rowAuthIndices.size === 0) return activeProviders;
 
   authState.files.forEach((file) => {
     const authIndex = normalizeAuthIndex(file['auth_index'] ?? file.authIndex);
@@ -81,9 +100,36 @@ const resolveActiveQuotaProvidersForRow = (
   return activeProviders;
 };
 
+const buildCustomQuotaTarget = (
+  row: MonitoringAccountRow,
+  source: MonitoringCustomQuotaSource
+): MonitoringAccountQuotaTarget => {
+  const targetKey = `custom::${source.sourceKey}::${source.bindingKey}`;
+  return {
+    key: targetKey,
+    provider: 'openai',
+    authIndex: '',
+    authLabel: source.displayName,
+    fileName: source.displayName,
+    file: {
+      name: `${source.sourceKey}.custom-quota`,
+      type: 'openai',
+      provider: 'openai',
+      account: row.account,
+      source: source.sourceKey,
+    },
+    accountId: null,
+    planType: null,
+    sourceKey: source.sourceKey,
+    customQuotaBindingKey: source.bindingKey,
+    customQuotaBinding: source.binding,
+  };
+};
+
 export const buildMonitoringAccountQuotaTargetsByRowId = (
   rows: MonitoringAccountRow[],
-  authStateByRowId: Map<string, MonitoringAccountAuthState>
+  authStateByRowId: Map<string, MonitoringAccountAuthState>,
+  customQuotaSources: MonitoringCustomQuotaSource[] = []
 ) =>
   new Map(
     rows.map((row) => {
@@ -112,13 +158,31 @@ export const buildMonitoringAccountQuotaTargetsByRowId = (
         });
       });
 
+      const rowSourceKeys = new Set(row.sourceKeys ?? []);
+      customQuotaSources.forEach((source) => {
+        if (!source.enabled || !rowSourceKeys.has(source.sourceKey)) return;
+        const target = buildCustomQuotaTarget(row, source);
+        if (!bucket.has(target.key)) bucket.set(target.key, target);
+      });
+
       return [
         row.id,
         Array.from(bucket.values()).sort(
           (left, right) =>
-            left.authLabel.localeCompare(right.authLabel) ||
-            left.provider.localeCompare(right.provider)
+            left.authLabel.localeCompare(right.authLabel) || left.provider.localeCompare(right.provider)
         ),
       ] as const;
     })
+  );
+
+export const buildMonitoringCustomQuotaTargetsByRowId = (
+  rows: MonitoringAccountRow[],
+  authStateByRowId: Map<string, MonitoringAccountAuthState>,
+  providers: OpenAIProviderConfig[],
+  managerConfig: ManagerConfig | null
+) =>
+  buildMonitoringAccountQuotaTargetsByRowId(
+    rows,
+    authStateByRowId,
+    buildMonitoringCustomQuotaSources(providers, managerConfig)
   );

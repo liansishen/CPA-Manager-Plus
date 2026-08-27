@@ -19,6 +19,7 @@ import (
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/cpaauthfiles"
 	dashboardsvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/dashboard"
 	managerconfigsvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/managerconfig"
+	customquotasvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/customquota"
 	modelpricesvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/modelprice"
 	monitoringsvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/monitoring"
 	panelsvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/panel"
@@ -49,6 +50,7 @@ type Context struct {
 	SetupService                   *setupsvc.Service
 	AdminAuthService               *adminauthsvc.Service
 	ManagerConfigService           *managerconfigsvc.Service
+	CustomQuotaService             *customquotasvc.Service
 	CollectorService               *collectorsvc.Service
 	UsageService                   *usagesvc.Service
 	DashboardService               *dashboardsvc.Service
@@ -135,6 +137,7 @@ func fromExisting(
 	}
 	collectorService := collectorsvc.New(collectorManager)
 	managerConfigService := managerconfigsvc.New(cfg, st, collectorService)
+	customQuotaService := customquotasvc.New(managerConfigService)
 	accountProcessingPolicyService := automationsvc.New(cfg, st)
 	usageImportBaseDir := strings.TrimSpace(cfg.DataDir)
 	if usageImportBaseDir == "" {
@@ -157,6 +160,7 @@ func fromExisting(
 		AdminAuthService:     adminauthsvc.New(cfg, st),
 		SetupService:         setupsvc.New(cfg, st, collectorService, managerConfigService, startedAt, serviceID),
 		ManagerConfigService: managerConfigService,
+		CustomQuotaService:             customQuotaService,
 		CollectorService:     collectorService,
 		UsageService:         usageService,
 		DashboardService:     dashboardsvc.New(st, cfg.DashboardHourlyRollupEnabled),
