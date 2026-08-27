@@ -19,18 +19,22 @@ export function useProviderQuotaManagerConfig(open: boolean) {
   const [managerConfigLoaded, setManagerConfigLoaded] = useState(false);
 
   useEffect(() => {
-    if (!open) {
-      setManagerConfig(null);
-      setManagerConfigLoaded(false);
-      return;
-    }
-    if (!quotaServiceBase || !managementKey) {
-      setManagerConfig(null);
-      setManagerConfigLoaded(true);
-      return;
-    }
+    if (!open) return;
+
     let cancelled = false;
-    setManagerConfigLoaded(false);
+    queueMicrotask(() => {
+      if (!cancelled) setManagerConfigLoaded(false);
+    });
+    if (!quotaServiceBase || !managementKey) {
+      queueMicrotask(() => {
+        if (cancelled) return;
+        setManagerConfig(null);
+        setManagerConfigLoaded(true);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
     usageServiceApi
       .getManagerConfig(quotaServiceBase, managementKey)
       .then((response) => {
