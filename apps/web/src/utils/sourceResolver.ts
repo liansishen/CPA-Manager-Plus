@@ -8,6 +8,7 @@ import {
 
 export interface SourceInfoMapInput {
   geminiApiKeys?: GeminiKeyConfig[];
+  interactionsApiKeys?: GeminiKeyConfig[];
   claudeApiKeys?: ProviderKeyConfig[];
   codexApiKeys?: ProviderKeyConfig[];
   xaiApiKeys?: ProviderKeyConfig[];
@@ -183,6 +184,7 @@ export function buildSourceInfoMap(input: SourceInfoMapInput): SourceInfoMap {
     label: string;
   }> = [
     { items: input.geminiApiKeys || [], type: 'gemini', label: 'Gemini' },
+    { items: input.interactionsApiKeys || [], type: 'interactions', label: 'Interactions' },
     { items: input.claudeApiKeys || [], type: 'claude', label: 'Claude' },
     { items: input.codexApiKeys || [], type: 'codex', label: 'Codex' },
     { items: input.xaiApiKeys || [], type: 'xai', label: 'xAI' },

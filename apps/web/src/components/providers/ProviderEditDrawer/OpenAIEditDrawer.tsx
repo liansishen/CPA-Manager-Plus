@@ -8,7 +8,7 @@ import { HeaderInputList } from '@/components/ui/HeaderInputList';
 import { ModelInputList } from '@/components/ui/ModelInputList';
 import { Modal } from '@/components/ui/Modal';
 import { SelectionCheckbox } from '@/components/ui/SelectionCheckbox';
-import { OpenAIKeyTestStatusIndicator } from '@/components/providers';
+import { OpenAIKeyTestStatusIndicator, ProviderQuotaEditor } from '@/components/providers';
 import { CoolingPolicySelect } from '@/components/providers/CoolingPolicySelect';
 import { apiCallApi, getApiCallErrorDetails, modelsApi, providersApi } from '@/services/api';
 import { usageServiceApi, type ManagerConfig, type ManagerCustomQuotaBinding } from '@/services/api/usageService';
@@ -56,17 +56,6 @@ interface OpenAIEditDrawerProps {
 type OpenAIFormBaseline = ReturnType<typeof buildOpenAIBaseline>;
 
 const OPENAI_TEST_TIMEOUT_MS = 30_000;
-const CUSTOM_QUOTA_MAPPING_FIELDS = [
-  ['windows', 'Windows path'],
-  ['label', 'Window label path'],
-  ['used', 'Used path'],
-  ['limit', 'Limit path'],
-  ['remaining', 'Remaining path'],
-  ['usedPercent', 'Used percent path'],
-  ['resetAt', 'Reset timestamp path'],
-  ['resetAfterSeconds', 'Reset countdown path'],
-  ['unit', 'Unit path'],
-] as const;
 
 
 const buildEmptyQuota = (): OpenAIQuotaFormState => ({
@@ -1023,11 +1012,6 @@ export function OpenAIEditDrawer({
       );
       setForm((prev) => ({ ...prev, apiKeyEntries: next }));
     };
-    const updateQuotaMapping = (idx: number, field: string, value: string) => {
-      const entry = list[idx];
-      const quota = entry?.quota ?? buildEmptyQuota();
-      updateQuota(idx, { mapping: { ...quota.mapping, [field]: value } });
-    };
 
     return (
       <div className={styles.keyEntriesList}>
@@ -1135,147 +1119,11 @@ export function OpenAIEditDrawer({
                     {t('common.delete')}
                   </Button>
                 </div>
-                <div className={styles.keyQuotaConfig}>
-                  <div className={styles.keyQuotaHeader}>
-                    <label className={styles.keyQuotaToggle}>
-                      <input
-                        type="checkbox"
-                        checked={quota.enabled}
-                        onChange={(event) => updateQuota(index, { enabled: event.target.checked })}
-                        disabled={saving || disabled || isTestingKeys}
-                      />
-                      <span>
-                        {t('ai_providers.openai_quota_enabled', { defaultValue: 'Enable quota lookup' })}
-                      </span>
-                    </label>
-                    <span className={styles.keyQuotaStatus}>
-                      {quota.quotaApiKeyConfigured
-                        ? t('ai_providers.openai_quota_key_configured', { defaultValue: 'API key configured' })
-                        : t('ai_providers.openai_quota_key_missing', { defaultValue: 'API key not configured' })}
-                    </span>
-                  </div>
-                  <div className={styles.keyQuotaFields}>
-                    <label className={styles.keyQuotaField}>
-                      <span>{t('ai_providers.openai_quota_type', { defaultValue: 'Type' })}</span>
-                      <select
-                        value={quota.kind}
-                        onChange={(event) =>
-                          updateQuota(index, { kind: event.target.value as OpenAIQuotaFormState['kind'] })
-                        }
-                        disabled={saving || disabled || isTestingKeys}
-                      >
-                        <option value="sub2api">Sub2API</option>
-                        <option value="custom_get">Custom GET JSON</option>
-                      </select>
-                    </label>
-                    <label className={styles.keyQuotaField}>
-                      <span>{t('ai_providers.openai_quota_url', { defaultValue: 'Quota URL' })}</span>
-                      <input
-                        type="url"
-                        value={quota.url}
-                        onChange={(event) => updateQuota(index, { url: event.target.value })}
-                        disabled={saving || disabled || isTestingKeys}
-                        className={`input ${styles.keyQuotaInput}`}
-                        placeholder="https://..."
-                      />
-                    </label>
-                    <label className={styles.keyQuotaField}>
-                      <span>{t('ai_providers.openai_quota_auth', { defaultValue: 'Authentication' })}</span>
-                      <select
-                        value={quota.authMode}
-                        onChange={(event) =>
-                          updateQuota(index, {
-                            authMode: event.target.value as OpenAIQuotaFormState['authMode'],
-                          })
-                        }
-                        disabled={saving || disabled || isTestingKeys}
-                      >
-                        <option value="bearer">Bearer</option>
-                        <option value="header">Header</option>
-                        <option value="none">None</option>
-                      </select>
-                    </label>
-                    {quota.authMode === 'header' && (
-                      <label className={styles.keyQuotaField}>
-                        <span>{t('ai_providers.openai_quota_auth_header', { defaultValue: 'API key header' })}</span>
-                        <input
-                          type="text"
-                          value={quota.apiKeyHeader}
-                          onChange={(event) => updateQuota(index, { apiKeyHeader: event.target.value })}
-                          disabled={saving || disabled || isTestingKeys}
-                          className={`input ${styles.keyQuotaInput}`}
-                          placeholder="X-API-Key"
-                        />
-                      </label>
-                    )}
-                    {quota.authMode !== 'none' && (
-                      <label className={styles.keyQuotaField}>
-                        <span>{t('ai_providers.openai_quota_api_key', { defaultValue: 'Quota API key' })}</span>
-                        <input
-                          type="password"
-                          value={quota.quotaApiKey}
-                          onChange={(event) =>
-                            updateQuota(index, {
-                              quotaApiKey: event.target.value,
-                              quotaApiKeyConfigured: false,
-                            })
-                          }
-                          disabled={saving || disabled || isTestingKeys}
-                          className={`input ${styles.keyQuotaInput}`}
-                          placeholder={
-                            quota.quotaApiKeyConfigured
-                              ? t('ai_providers.openai_quota_key_placeholder', { defaultValue: 'Configured; enter to replace' })
-                              : 'sk-...'
-                          }
-                          autoComplete="new-password"
-                        />
-                      </label>
-                    )}
-                    <label className={styles.keyQuotaField}>
-                      <span>{t('common.proxy_url')}</span>
-                      <input
-                        type="url"
-                        value={quota.proxyUrl}
-                        onChange={(event) => updateQuota(index, { proxyUrl: event.target.value })}
-                        disabled={saving || disabled || isTestingKeys}
-                        className={`input ${styles.keyQuotaInput}`}
-                        placeholder="http://proxy:8080"
-                      />
-                    </label>
-                  </div>
-                  <HeaderInputList
-                    entries={quota.headers}
-                    onChange={(headers) => updateQuota(index, { headers })}
-                    addLabel={t('common.custom_headers_add')}
-                    keyPlaceholder={t('common.custom_headers_key_placeholder')}
-                    valuePlaceholder={t('common.custom_headers_value_placeholder')}
-                    removeButtonTitle={t('common.delete')}
-                    removeButtonAriaLabel={t('common.delete')}
-                    disabled={saving || disabled || isTestingKeys}
-                  />
-                  {quota.kind === 'custom_get' && (
-                    <div className={styles.keyQuotaMapping}>
-                      <div className={styles.keyQuotaMappingTitle}>
-                        {t('ai_providers.openai_quota_mapping', { defaultValue: 'JSON field paths' })}
-                      </div>
-                      <div className={styles.keyQuotaFields}>
-                        {CUSTOM_QUOTA_MAPPING_FIELDS.map(([field, label]) => (
-                          <label key={field} className={styles.keyQuotaField}>
-                            <span>{label}</span>
-                            <input
-                              type="text"
-                              value={quota.mapping[field] ?? ''}
-                              onChange={(event) => updateQuotaMapping(index, field, event.target.value)}
-                              disabled={saving || disabled || isTestingKeys}
-                              className={`input ${styles.keyQuotaInput}`}
-                              placeholder={`$.${field}`}
-                            />
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <ProviderQuotaEditor
+                  quota={quota}
+                  onChange={(patch) => updateQuota(index, patch)}
+                  disabled={saving || disabled || isTestingKeys}
+                />
               </div>
             );
           })}

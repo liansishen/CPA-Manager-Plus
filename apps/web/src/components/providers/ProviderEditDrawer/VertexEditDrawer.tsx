@@ -6,6 +6,8 @@ import { Input } from '@/components/ui/Input';
 import { HeaderInputList } from '@/components/ui/HeaderInputList';
 import { ModelInputList } from '@/components/ui/ModelInputList';
 import { providersApi } from '@/services/api';
+import { ProviderQuotaEditor } from '@/components/providers/ProviderQuotaEditor';
+import { usageServiceApi } from '@/services/api/usageService';
 import { useConfigStore, useNotificationStore } from '@/stores';
 import { coolingPolicyFromOverride, coolingPolicyToOverride, type ProviderKeyConfig } from '@/types';
 import { buildHeaderObject, headersToEntries, normalizeHeaderEntries } from '@/utils/headers';
@@ -18,6 +20,19 @@ import {
   normalizeCredentialWeight,
 } from '@/utils/credentialWeight';
 import styles from '@/features/aiProviders/AiProvidersPage.module.scss';
+import {
+  buildProviderQuotaManagerConfig,
+  hasProviderQuotaBinding,
+  hasProviderQuotaState,
+  useProviderQuotaManagerConfig,
+} from '../hooks/useProviderQuotaManagerConfig';
+import {
+  buildEmptyProviderQuota,
+  findProviderQuotaBinding,
+  isProviderQuotaInvalid,
+  normalizeProviderQuotaForComparison,
+  quotaBindingToForm,
+} from '@/utils/quota/providerQuota';
 
 interface VertexEditDrawerProps {
   open: boolean;
@@ -41,6 +56,7 @@ const buildEmptyForm = (): VertexFormState => ({
   modelEntries: [{ name: '', alias: '' }],
   excludedText: '',
   disableCooling: 'inherit',
+  quota: buildEmptyProviderQuota(),
 });
 
 const normalizeModelEntries = (entries: Array<{ name: string; alias: string }>) =>
@@ -63,6 +79,7 @@ const buildVertexBaseline = (form: VertexFormState) => ({
   headers: normalizeHeaderEntries(form.headers),
   models: normalizeModelEntries(form.modelEntries),
   excludedModels: parseExcludedModels(form.excludedText ?? ''),
+  quota: normalizeProviderQuotaForComparison(form.quota),
 });
 
 const getErrorMessage = (err: unknown) => {
@@ -77,6 +94,13 @@ export function VertexEditDrawer({ open, editIndex, disabled, onClose, onSaved }
   const fetchConfig = useConfigStore((state) => state.fetchConfig);
   const updateConfigValue = useConfigStore((state) => state.updateConfigValue);
   const clearCache = useConfigStore((state) => state.clearCache);
+  const {
+    managerConfig,
+    managerConfigLoaded,
+    managementKey,
+    quotaServiceBase,
+    setManagerConfig,
+  } = useProviderQuotaManagerConfig(open);
 
   const [configs, setConfigs] = useState<ProviderKeyConfig[]>([]);
   const [loading, setLoading] = useState(false);
@@ -121,7 +145,7 @@ export function VertexEditDrawer({ open, editIndex, disabled, onClose, onSaved }
   }, [open, clearCache, fetchConfig, t, updateConfigValue]);
 
   useEffect(() => {
-    if (!open || !loaded) return;
+    if (!open || !loaded || !managerConfigLoaded) return;
     if (initialData) {
       const nextForm: VertexFormState = {
         ...initialData,
@@ -129,6 +153,9 @@ export function VertexEditDrawer({ open, editIndex, disabled, onClose, onSaved }
         headers: headersToEntries(initialData.headers),
         modelEntries: initialData.models?.map((m) => ({ name: m.name, alias: m.alias ?? '' })) ?? [{ name: '', alias: '' }],
         excludedText: excludedModelsToText(initialData.excludedModels),
+        quota: quotaBindingToForm(
+          findProviderQuotaBinding(managerConfig, 'vertex', `vertex:${editIndex}`, initialData.apiKey)
+        ),
       };
       setForm(nextForm);
       setBaseline(buildVertexBaseline(nextForm));
@@ -137,7 +164,7 @@ export function VertexEditDrawer({ open, editIndex, disabled, onClose, onSaved }
       setForm(nextForm);
       setBaseline(buildVertexBaseline(nextForm));
     }
-  }, [open, loaded, initialData]);
+  }, [open, loaded, managerConfig, managerConfigLoaded, initialData]);
 
   const canSave =
     !disabled && !saving && !loading && !invalidIndex && !getCredentialWeightError(form.weight);
@@ -155,7 +182,8 @@ export function VertexEditDrawer({ open, editIndex, disabled, onClose, onSaved }
       baseline.disableCooling !== form.disableCooling ||
       !areKeyValueEntriesEqual(baseline.headers, normalizeHeaderEntries(form.headers)) ||
       !areModelEntriesEqual(baseline.models, normalizeModelEntries(form.modelEntries)) ||
-      !areStringArraysEqual(baseline.excludedModels, parseExcludedModels(form.excludedText ?? ''))
+      !areStringArraysEqual(baseline.excludedModels, parseExcludedModels(form.excludedText ?? '')) ||
+      JSON.stringify(baseline.quota) !== JSON.stringify(normalizeProviderQuotaForComparison(form.quota))
     );
   }, [baseline, form]);
 
@@ -169,6 +197,27 @@ export function VertexEditDrawer({ open, editIndex, disabled, onClose, onSaved }
     const baseUrl = (form.baseUrl ?? '').trim();
     if (!baseUrl) {
       showNotification(t('ai_providers.vertex_base_url_required', { defaultValue: 'Please enter the Vertex Base URL' }), 'error');
+      return;
+    }
+    if (isProviderQuotaInvalid(form.quota)) {
+      showNotification(
+        t('ai_providers.openai_quota_invalid', {
+          defaultValue: 'Enabled quota lookup needs a URL and authentication key.',
+        }),
+        'error'
+      );
+      return;
+    }
+    const providerName = `vertex:${editIndex ?? configs.length}`;
+    const shouldSaveCustomQuota =
+      hasProviderQuotaState(form.quota) || hasProviderQuotaBinding(managerConfig, providerName);
+    if (shouldSaveCustomQuota && (!managerConfig || !quotaServiceBase || !managementKey)) {
+      showNotification(
+        t('ai_providers.openai_quota_service_unavailable', {
+          defaultValue: 'The Manager Server is unavailable; quota settings were not saved.',
+        }),
+        'error'
+      );
       return;
     }
     setSaving(true);
@@ -196,6 +245,14 @@ export function VertexEditDrawer({ open, editIndex, disabled, onClose, onSaved }
       } else {
         await providersApi.createVertexConfig(payload);
       }
+      if (shouldSaveCustomQuota && managerConfig && quotaServiceBase && managementKey) {
+        const managerResponse = await usageServiceApi.saveManagerConfig(
+          quotaServiceBase,
+          buildProviderQuotaManagerConfig(managerConfig, 'vertex', providerName, apiKey, form.quota),
+          managementKey
+        );
+        setManagerConfig(managerResponse.config);
+      }
       const syncedList = await providersApi.getVertexConfigs().catch(() =>
         editIndex !== null
           ? configs.map((item, index) => (index === editIndex ? payload : item))
@@ -212,7 +269,26 @@ export function VertexEditDrawer({ open, editIndex, disabled, onClose, onSaved }
     } finally {
       setSaving(false);
     }
-  }, [canSave, clearCache, configs, editIndex, form, onClose, onSaved, showNotification, t, updateConfigValue]);
+  }, [
+    canSave,
+    clearCache,
+    configs,
+    editIndex,
+    form,
+    onClose,
+    onSaved,
+    showNotification,
+    t,
+    updateConfigValue,
+    buildProviderQuotaManagerConfig,
+    hasProviderQuotaBinding,
+    hasProviderQuotaState,
+    isProviderQuotaInvalid,
+    managerConfig,
+    managementKey,
+    quotaServiceBase,
+    setManagerConfig,
+  ]);
 
   const handleClose = useCallback(() => {
     if (isDirty && !saving) {
@@ -270,6 +346,16 @@ export function VertexEditDrawer({ open, editIndex, disabled, onClose, onSaved }
               disabled={disabled || saving}
               id="vertex-drawer-cooling-policy"
               legacyProviderSupported={false}
+            />
+            <ProviderQuotaEditor
+              quota={form.quota ?? buildEmptyProviderQuota()}
+              onChange={(patch) =>
+                setForm((prev) => ({
+                  ...prev,
+                  quota: { ...buildEmptyProviderQuota(), ...prev.quota, ...patch },
+                }))
+              }
+              disabled={saving || disabled}
             />
             <div className="form-group">
               <label>{t('ai_providers.vertex_models_label')}</label>

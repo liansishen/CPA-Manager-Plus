@@ -1,4 +1,4 @@
-import type { AuthFileItem, OpenAIProviderConfig } from '@/types';
+import type { AuthFileItem, Config, OpenAIProviderConfig } from '@/types';
 import type { ManagerConfig, ManagerCustomQuotaBinding } from '@/services/api/usageService';
 import {
   buildMonitoringCustomQuotaSources,
@@ -22,8 +22,11 @@ export type MonitoringAccountQuotaProvider =
   | 'antigravity'
   | 'claude'
   | 'codex'
+  | 'gemini'
+  | 'interactions'
   | 'kimi'
   | 'openai'
+  | 'vertex'
   | 'xai';
 
 
@@ -102,14 +105,14 @@ const buildCustomQuotaTarget = (
   const targetKey = `custom::${source.sourceKey}::${source.bindingKey}`;
   return {
     key: targetKey,
-    provider: 'openai',
+    provider: source.providerKind,
     authIndex: '',
     authLabel: source.displayName,
     fileName: source.displayName,
     file: {
       name: `${source.sourceKey}.custom-quota`,
-      type: 'openai',
-      provider: 'openai',
+      type: source.providerKind,
+      provider: source.providerKind,
       account: row.account,
       source: source.sourceKey,
     },
@@ -173,11 +176,11 @@ export const buildMonitoringAccountQuotaTargetsByRowId = (
 export const buildMonitoringCustomQuotaTargetsByRowId = (
   rows: MonitoringAccountRow[],
   authStateByRowId: Map<string, MonitoringAccountAuthState>,
-  providers: OpenAIProviderConfig[],
+  config: Config | OpenAIProviderConfig[],
   managerConfig: ManagerConfig | null
 ) =>
   buildMonitoringAccountQuotaTargetsByRowId(
     rows,
     authStateByRowId,
-    buildMonitoringCustomQuotaSources(providers, managerConfig)
+    buildMonitoringCustomQuotaSources(config, managerConfig)
   );

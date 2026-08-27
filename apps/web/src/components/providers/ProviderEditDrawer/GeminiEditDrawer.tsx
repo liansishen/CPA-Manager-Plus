@@ -8,7 +8,9 @@ import { ModelInputList } from '@/components/ui/ModelInputList';
 import { Modal } from '@/components/ui/Modal';
 import { SelectionCheckbox } from '@/components/ui/SelectionCheckbox';
 import { CoolingPolicySelect } from '@/components/providers/CoolingPolicySelect';
+import { ProviderQuotaEditor } from '@/components/providers/ProviderQuotaEditor';
 import { modelsApi, providersApi } from '@/services/api';
+import { usageServiceApi } from '@/services/api/usageService';
 import { useConfigStore, useNotificationStore } from '@/stores';
 import {
   coolingPolicyFromOverride,
@@ -27,6 +29,19 @@ import { entriesToModels, modelsToEntries } from '@/components/ui/modelInputList
 import { excludedModelsToText, parseExcludedModels } from '@/components/providers/utils';
 import { CredentialWeightInput } from '../CredentialWeightInput';
 import type { GeminiFormState } from '../types';
+import {
+  buildProviderQuotaManagerConfig,
+  hasProviderQuotaBinding,
+  hasProviderQuotaState,
+  useProviderQuotaManagerConfig,
+} from '../hooks/useProviderQuotaManagerConfig';
+import {
+  buildEmptyProviderQuota,
+  findProviderQuotaBinding,
+  isProviderQuotaInvalid,
+  normalizeProviderQuotaForComparison,
+  quotaBindingToForm,
+} from '@/utils/quota/providerQuota';
 import {
   getCredentialWeightComparisonValue,
   getCredentialWeightError,
@@ -57,6 +72,7 @@ const buildEmptyForm = (): GeminiFormState => ({
   excludedModels: [],
   excludedText: '',
   disableCooling: 'inherit',
+  quota: buildEmptyProviderQuota(),
 });
 
 const stripGeminiModelResourceName = (value: string) =>
@@ -89,6 +105,7 @@ const buildGeminiBaseline = (form: GeminiFormState) => ({
   headers: normalizeHeaderEntries(form.headers),
   models: normalizeModelEntries(form.modelEntries),
   excludedModels: parseExcludedModels(form.excludedText ?? ''),
+  quota: normalizeProviderQuotaForComparison(form.quota),
 });
 
 const getErrorMessage = (err: unknown) => {
@@ -110,6 +127,13 @@ export function GeminiEditDrawer({
   const fetchConfig = useConfigStore((state) => state.fetchConfig);
   const updateConfigValue = useConfigStore((state) => state.updateConfigValue);
   const clearCache = useConfigStore((state) => state.clearCache);
+  const {
+    managerConfig,
+    managerConfigLoaded,
+    managementKey,
+    quotaServiceBase,
+    setManagerConfig,
+  } = useProviderQuotaManagerConfig(open);
 
   const [configs, setConfigs] = useState<GeminiKeyConfig[]>([]);
   const [loading, setLoading] = useState(false);
@@ -175,7 +199,7 @@ export function GeminiEditDrawer({
 
   // Init form when configs loaded
   useEffect(() => {
-    if (!open || !loaded) return;
+    if (!open || !loaded || !managerConfigLoaded) return;
     if (initialData) {
       const { headers, models, ...rest } = initialData;
       const nextForm: GeminiFormState = {
@@ -187,6 +211,9 @@ export function GeminiEditDrawer({
           name: stripGeminiModelResourceName(entry.name),
         })),
         excludedText: excludedModelsToText(initialData.excludedModels),
+        quota: quotaBindingToForm(
+          findProviderQuotaBinding(managerConfig, providerKind, `${providerKind}:${editIndex}`, initialData.apiKey)
+        ),
       };
       setForm(nextForm);
       setBaseline(buildGeminiBaseline(nextForm));
@@ -195,7 +222,7 @@ export function GeminiEditDrawer({
       setForm(nextForm);
       setBaseline(buildGeminiBaseline(nextForm));
     }
-  }, [open, loaded, initialData]);
+  }, [open, loaded, managerConfig, managerConfigLoaded, initialData, providerKind, editIndex]);
 
   const canSave =
     !disabled && !saving && !loading && !invalidIndex && !getCredentialWeightError(form.weight);
@@ -217,7 +244,8 @@ export function GeminiEditDrawer({
       baseline.disableCooling !== form.disableCooling ||
       !areKeyValueEntriesEqual(baseline.headers, normalizeHeaderEntries(form.headers)) ||
       !areModelEntriesEqual(baseline.models, normalizeModelEntries(form.modelEntries)) ||
-      !areStringArraysEqual(baseline.excludedModels, parseExcludedModels(form.excludedText ?? ''))
+      !areStringArraysEqual(baseline.excludedModels, parseExcludedModels(form.excludedText ?? '')) ||
+      JSON.stringify(baseline.quota) !== JSON.stringify(normalizeProviderQuotaForComparison(form.quota))
     );
   }, [baseline, form]);
 
@@ -328,6 +356,27 @@ export function GeminiEditDrawer({
         'error'
       );
       return;
+    if (isProviderQuotaInvalid(form.quota)) {
+      showNotification(
+        t('ai_providers.openai_quota_invalid', {
+          defaultValue: 'Enabled quota lookup needs a URL and authentication key.',
+        }),
+        'error'
+      );
+      return;
+    }
+    const providerName = `${providerKind}:${editIndex ?? configs.length}`;
+    const shouldSaveCustomQuota =
+      hasProviderQuotaState(form.quota) || hasProviderQuotaBinding(managerConfig, providerName);
+    if (shouldSaveCustomQuota && (!managerConfig || !quotaServiceBase || !managementKey)) {
+      showNotification(
+        t('ai_providers.openai_quota_service_unavailable', {
+          defaultValue: 'The Manager Server is unavailable; quota settings were not saved.',
+        }),
+        'error'
+      );
+      return;
+    }
     }
     setSaving(true);
     setError('');
@@ -361,6 +410,14 @@ export function GeminiEditDrawer({
         } else {
           await providersApi.createGeminiKey(payload);
         }
+      }
+      if (shouldSaveCustomQuota && managerConfig && quotaServiceBase && managementKey) {
+        const managerResponse = await usageServiceApi.saveManagerConfig(
+          quotaServiceBase,
+          buildProviderQuotaManagerConfig(managerConfig, providerKind, providerName, apiKey, form.quota),
+          managementKey
+        );
+        setManagerConfig(managerResponse.config);
       }
       const syncedList = isInteractions
         ? await providersApi.getInteractionsKeys().catch(() =>
@@ -410,6 +467,15 @@ export function GeminiEditDrawer({
     showNotification,
     t,
     updateConfigValue,
+    buildProviderQuotaManagerConfig,
+    hasProviderQuotaBinding,
+    hasProviderQuotaState,
+    isProviderQuotaInvalid,
+    managerConfig,
+    managementKey,
+    providerKind,
+    quotaServiceBase,
+    setManagerConfig,
   ]);
 
   const handleClose = useCallback(() => {
@@ -567,6 +633,16 @@ export function GeminiEditDrawer({
               onChange={(value) => setForm((prev) => ({ ...prev, disableCooling: value }))}
               disabled={disabled || saving}
               id={`${configSection}-cooling-policy`}
+            />
+            <ProviderQuotaEditor
+              quota={form.quota ?? buildEmptyProviderQuota()}
+              onChange={(patch) =>
+                setForm((prev) => ({
+                  ...prev,
+                  quota: { ...buildEmptyProviderQuota(), ...prev.quota, ...patch },
+                }))
+              }
+              disabled={disabled || saving}
             />
 
             <div className={styles.modelConfigSection}>

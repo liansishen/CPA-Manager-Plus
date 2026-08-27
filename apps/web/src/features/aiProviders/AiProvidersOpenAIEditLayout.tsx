@@ -22,6 +22,15 @@ import { normalizeAuthIndex } from '@/utils/authIndex';
 import { buildHeaderObject, headersToEntries, normalizeHeaderEntries } from '@/utils/headers';
 import { areKeyValueEntriesEqual, areModelEntriesEqual } from '@/utils/compare';
 import { buildApiKeyEntry } from '@/components/providers/utils';
+import { usageServiceApi } from '@/services/api/usageService';
+import {
+  buildEmptyProviderQuota,
+  buildProviderQuotaBindings,
+  findProviderQuotaBinding,
+  isProviderQuotaInvalid,
+  normalizeProviderQuotaForComparison,
+  quotaBindingToForm,
+} from '@/utils/quota/providerQuota';
 import {
   buildProviderDraftKey,
   parseProviderIndexParam,
@@ -31,6 +40,7 @@ import type {
   OpenAIFormApiKeyEntry,
   OpenAIFormState,
 } from '@/components/providers/types';
+import { useProviderQuotaManagerConfig } from '@/components/providers/hooks/useProviderQuotaManagerConfig';
 import type { KeyTestStatus, OpenAIEditBaseline } from '@/stores/useOpenAIEditDraftStore';
 import {
   getCredentialWeightComparisonValue,
@@ -73,7 +83,7 @@ const buildEmptyForm = (): OpenAIFormState => ({
   prefix: '',
   baseUrl: '',
   headers: [],
-  apiKeyEntries: [buildApiKeyEntry()],
+  apiKeyEntries: [{ ...buildApiKeyEntry(), quota: buildEmptyProviderQuota() }],
   modelEntries: [{ name: '', alias: '' }],
   testModel: undefined,
   disableCooling: 'inherit',
@@ -117,6 +127,7 @@ const normalizeApiKeyEntries = (entries: OpenAIFormApiKeyEntry[]) =>
       proxyUrl: string;
       authIndex: string;
       headers: Array<{ key: string; value: string }>;
+      quota: ReturnType<typeof normalizeProviderQuotaForComparison>;
     }>
   >((acc, entry) => {
     const apiKey = String(entry?.apiKey ?? '').trim();
@@ -124,8 +135,9 @@ const normalizeApiKeyEntries = (entries: OpenAIFormApiKeyEntry[]) =>
     const proxyUrl = String(entry?.proxyUrl ?? '').trim();
     const authIndex = normalizeAuthIndex(entry?.authIndex) ?? '';
     const headers = normalizeKeyHeaders(entry?.headers);
-    if (!apiKey && weight === null && !proxyUrl && !authIndex && headers.length === 0) return acc;
-    acc.push({ apiKey, weight, proxyUrl, authIndex, headers });
+    const quota = normalizeProviderQuotaForComparison(entry?.quota);
+    if (!apiKey && weight === null && !proxyUrl && !authIndex && headers.length === 0 && !quota) return acc;
+    acc.push({ apiKey, weight, proxyUrl, authIndex, headers, quota });
     return acc;
   }, []);
 
@@ -163,6 +175,7 @@ const areNormalizedApiKeyEntriesEqual = (
       return false;
     }
     if (!areKeyValueEntriesEqual(left.headers, right.headers)) return false;
+    if (JSON.stringify(left.quota) !== JSON.stringify(right.quota)) return false;
   }
   return true;
 };
@@ -186,6 +199,13 @@ export function AiProvidersOpenAIEditLayout() {
   const updateConfigValue = useConfigStore((state) => state.updateConfigValue);
   const isCacheValid = useConfigStore((state) => state.isCacheValid);
 
+  const {
+    managerConfig,
+    managerConfigLoaded,
+    managementKey,
+    quotaServiceBase,
+    setManagerConfig,
+  } = useProviderQuotaManagerConfig(true);
   const [providers, setProviders] = useState<OpenAIProviderConfig[]>(
     () => config?.openaiCompatibility ?? []
   );
@@ -331,11 +351,20 @@ export function AiProvidersOpenAIEditLayout() {
   }, [fetchConfig, isCacheValid, showNotification, t, updateConfigValue]);
 
   useEffect(() => {
-    if (loading) return;
+    if (loading || !managerConfigLoaded) return;
     if (draft?.initialized) return;
 
     if (initialData) {
       const modelEntries = modelsToEntries(initialData.models);
+      const sourceEntries = initialData.apiKeyEntries?.length
+        ? initialData.apiKeyEntries
+        : [{ ...buildApiKeyEntry(), quota: buildEmptyProviderQuota() }];
+      const apiKeyEntries = sourceEntries.map((entry) => ({
+        ...entry,
+        quota: quotaBindingToForm(
+          findProviderQuotaBinding(managerConfig, 'openai', initialData.name, entry.apiKey)
+        ),
+      }));
       const seededForm: OpenAIFormState = {
         name: initialData.name,
         priority: initialData.priority,
@@ -344,9 +373,7 @@ export function AiProvidersOpenAIEditLayout() {
         headers: headersToEntries(initialData.headers),
         testModel: initialData.testModel,
         modelEntries,
-        apiKeyEntries: initialData.apiKeyEntries?.length
-          ? initialData.apiKeyEntries
-          : [buildApiKeyEntry()],
+        apiKeyEntries,
         disableCooling: coolingPolicyFromOverride(initialData.disableCooling),
       };
 
@@ -375,7 +402,7 @@ export function AiProvidersOpenAIEditLayout() {
         keyTestStatuses: [],
       });
     }
-  }, [draft?.initialized, draftKey, initDraft, initialData, loading]);
+  }, [draft?.initialized, draftKey, initDraft, initialData, loading, managerConfig, managerConfigLoaded]);
 
   useEffect(() => {
     if (loading) return;
@@ -516,6 +543,45 @@ export function AiProvidersOpenAIEditLayout() {
     }
     if (hasInvalidWeight) return;
 
+    const hasInvalidQuota = form.apiKeyEntries.some((entry) => isProviderQuotaInvalid(entry.quota));
+    if (hasInvalidQuota) {
+      showNotification(
+        t('ai_providers.openai_quota_invalid', {
+          defaultValue: 'Enabled quota lookup needs a URL and authentication key.',
+        }),
+        'error'
+      );
+      return;
+    }
+
+    const hasQuotaState = form.apiKeyEntries.some((entry) =>
+      Boolean(normalizeProviderQuotaForComparison(entry.quota))
+    );
+    const existingQuotaBindings = managerConfig?.customQuota?.bindings ?? {};
+    const quotaProviderNames = new Set(
+      [name, initialData?.name].filter((value): value is string => Boolean(value))
+    );
+    const existingQuotaBindingEntries = Object.entries(existingQuotaBindings).filter(
+      ([, binding]) => !quotaProviderNames.has(binding.providerName?.trim() ?? '')
+    );
+    const hasExistingQuotaBindings = existingQuotaBindingEntries.length < Object.keys(existingQuotaBindings).length;
+    const shouldSaveCustomQuota = hasQuotaState || hasExistingQuotaBindings;
+    if (shouldSaveCustomQuota && (!managerConfig || !quotaServiceBase || !managementKey)) {
+      showNotification(
+        t('ai_providers.openai_quota_service_unavailable', {
+          defaultValue: 'The Manager Server is unavailable; quota settings were not saved.',
+        }),
+        'error'
+      );
+      return;
+    }
+    const customQuotaBindings = Object.assign(
+      {},
+      ...form.apiKeyEntries.map((entry) =>
+        buildProviderQuotaBindings('openai', name, entry.apiKey, entry.quota)
+      )
+    );
+
     setSaving(true);
     try {
       const payload: OpenAIProviderConfig = {
@@ -554,6 +620,24 @@ export function AiProvidersOpenAIEditLayout() {
         await providersApi.createOpenAIProvider(payload);
       }
 
+      if (shouldSaveCustomQuota && managerConfig && quotaServiceBase && managementKey) {
+        const managerResponse = await usageServiceApi.saveManagerConfig(
+          quotaServiceBase,
+          {
+            ...managerConfig,
+            customQuota: {
+              ...managerConfig.customQuota,
+              bindings: {
+                ...Object.fromEntries(existingQuotaBindingEntries),
+                ...customQuotaBindings,
+              },
+            },
+          },
+          managementKey
+        );
+        setManagerConfig(managerResponse.config);
+      }
+
       let syncedProviders = nextList;
       try {
         syncedProviders = await providersApi.getOpenAIProviders();
@@ -590,6 +674,10 @@ export function AiProvidersOpenAIEditLayout() {
     t,
     testModel,
     updateConfigValue,
+    managerConfig,
+    managementKey,
+    quotaServiceBase,
+    setManagerConfig,
   ]);
 
   return (

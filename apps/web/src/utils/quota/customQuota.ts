@@ -1,5 +1,5 @@
 import type { TFunction } from 'i18next';
-import type { OpenAIProviderConfig } from '@/types';
+import type { Config, OpenAIProviderConfig } from '@/types';
 import type { AccountQuotaWindow } from '@/features/monitoring/components/accountOverviewPresentation';
 import type {
   ManagerConfig,
@@ -7,6 +7,7 @@ import type {
 } from '@/services/api/usageService';
 import { buildSourceInfoMap } from '@/utils/sourceResolver';
 import { sha256Hex } from '@/utils/apiKeyHash';
+import { buildProviderQuotaBindingKey, type ProviderQuotaKind } from '@/utils/quota/providerQuota';
 import {
   formatQuotaResetTime,
   resolveAbsoluteQuotaReset,
@@ -27,6 +28,7 @@ type CustomQuotaWindowValues = {
 export type MonitoringCustomQuotaSource = {
   sourceKey: string;
   bindingKey: string;
+  providerKind: ProviderQuotaKind;
   providerName: string;
   displayName: string;
   binding: ManagerCustomQuotaBinding;
@@ -292,55 +294,120 @@ export const buildCustomQuotaAccountWindows = (
 
 const findBinding = (
   bindings: Record<string, ManagerCustomQuotaBinding> | undefined,
+  providerKind: ProviderQuotaKind,
   providerName: string,
   apiKey: string
 ): [string, ManagerCustomQuotaBinding] | undefined => {
   if (!bindings) return undefined;
-  const bindingKey = buildCustomQuotaBindingKey(providerName, apiKey);
+  const bindingKey = buildCustomQuotaBindingKey(providerName, apiKey, providerKind);
   const direct = bindings[bindingKey];
   if (direct) return [bindingKey, direct];
   const apiKeyHash = sha256Hex(apiKey);
+  const providerPrefix = `${providerKind}:`;
   const fallback = Object.entries(bindings).find(
-    ([, binding]) =>
-      binding.providerName?.trim() === providerName.trim() && binding.apiKeyHash === apiKeyHash
+    ([key, binding]) =>
+      key.startsWith(providerPrefix) &&
+      binding.providerName?.trim() === providerName.trim() &&
+      binding.apiKeyHash === apiKeyHash
   );
   return fallback;
 };
 
-export const buildCustomQuotaBindingKey = (providerName: string, apiKey: string) => {
-  const provider = providerName.trim();
-  const key = apiKey.trim();
-  return provider && key ? `openai:${sha256Hex(`${provider}\u0000${key}`)}` : '';
-};
+export const buildCustomQuotaBindingKey = (
+  providerName: string,
+  apiKey: string,
+  providerKind: ProviderQuotaKind = 'openai'
+) => buildProviderQuotaBindingKey(providerKind, providerName, apiKey);
+
+type MonitoringQuotaConfig = Config | OpenAIProviderConfig[];
 
 export const buildMonitoringCustomQuotaSources = (
-  providers: OpenAIProviderConfig[],
+  configOrProviders: MonitoringQuotaConfig,
   managerConfig: ManagerConfig | null
 ): MonitoringCustomQuotaSource[] => {
+  const config: Config = Array.isArray(configOrProviders)
+    ? { openaiCompatibility: configOrProviders }
+    : configOrProviders;
   const bindings = managerConfig?.customQuota?.bindings;
   if (!bindings) return [];
-  const sourceInfoMap = buildSourceInfoMap({ openaiCompatibility: providers });
+  const sourceInfoMap = buildSourceInfoMap(config);
   const sources: MonitoringCustomQuotaSource[] = [];
-  providers.forEach((provider, providerIndex) => {
-    (provider.apiKeyEntries || []).forEach((entry, entryIndex) => {
-      const apiKey = entry.apiKey?.trim() ?? '';
-      const providerName = provider.name?.trim() ?? '';
-      if (!apiKey || !providerName) return;
-      const matchedBinding = findBinding(bindings, providerName, apiKey);
-      if (!matchedBinding) return;
-      const [bindingKey, binding] = matchedBinding;
-      if (binding.enabled === false || !binding.url?.trim()) return;
-      const sourceKey = `openai:${providerIndex}:${entryIndex}`;
+
+  const addSource = ({
+    providerKind,
+    sourceKey,
+    providerName,
+    apiKey,
+    displayName,
+    enabled,
+  }: {
+    providerKind: ProviderQuotaKind;
+    sourceKey: string;
+    providerName: string;
+    apiKey: string;
+    displayName: string;
+    enabled: boolean;
+  }) => {
+    if (!apiKey || !providerName) return;
+    const matchedBinding = findBinding(bindings, providerKind, providerName, apiKey);
+    if (!matchedBinding) return;
+    const [bindingKey, binding] = matchedBinding;
+    if (binding.enabled === false || !binding.url?.trim()) return;
+    sources.push({
+      sourceKey,
+      bindingKey,
+      providerKind,
+      providerName,
+      displayName,
+      binding,
+      enabled,
+    });
+  };
+
+  const standardProviders: Array<{
+    providerKind: Exclude<ProviderQuotaKind, 'openai'>;
+    items: Array<{ apiKey?: string; excludedModels?: string[] }>;
+  }> = [
+    { providerKind: 'gemini', items: config.geminiApiKeys || [] },
+    { providerKind: 'interactions', items: config.interactionsApiKeys || [] },
+    { providerKind: 'codex', items: config.codexApiKeys || [] },
+    { providerKind: 'xai', items: config.xaiApiKeys || [] },
+    { providerKind: 'claude', items: config.claudeApiKeys || [] },
+    { providerKind: 'vertex', items: config.vertexApiKeys || [] },
+  ];
+  standardProviders.forEach(({ providerKind, items }) => {
+    items.forEach((item, index) => {
+      const sourceKey = `${providerKind}:${index}`;
+      const providerName = sourceKey;
       const sourceInfo = sourceInfoMap.byIdentityKey.get(sourceKey);
-      sources.push({
+      addSource({
+        providerKind,
         sourceKey,
-        bindingKey,
         providerName,
+        apiKey: item.apiKey?.trim() ?? '',
         displayName: sourceInfo?.displayName || providerName,
-        binding,
+        enabled:
+          !Array.isArray(item.excludedModels) ||
+          !item.excludedModels.some((model) => String(model ?? '').trim() === '*'),
+      });
+    });
+  });
+
+  (config.openaiCompatibility || []).forEach((provider, providerIndex) => {
+    (provider.apiKeyEntries || []).forEach((entry, entryIndex) => {
+      const sourceKey = `openai:${providerIndex}:${entryIndex}`;
+      const providerName = provider.name?.trim() ?? '';
+      const sourceInfo = sourceInfoMap.byIdentityKey.get(sourceKey);
+      addSource({
+        providerKind: 'openai',
+        sourceKey,
+        providerName,
+        apiKey: entry.apiKey?.trim() ?? '',
+        displayName: sourceInfo?.displayName || providerName,
         enabled: provider.disabled !== true,
       });
     });
   });
+
   return sources;
 };

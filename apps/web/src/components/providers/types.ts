@@ -15,7 +15,7 @@ export interface ModelEntry {
 }
 
 
-export interface OpenAIQuotaFormState {
+export interface ProviderQuotaFormState {
   enabled: boolean;
   kind: 'sub2api' | 'custom_get';
   url: string;
@@ -28,6 +28,8 @@ export interface OpenAIQuotaFormState {
   mapping: Record<string, string>;
   hasBinding?: boolean;
 }
+
+export type OpenAIQuotaFormState = ProviderQuotaFormState;
 
 export interface OpenAIFormState {
   name: string;
@@ -52,6 +54,7 @@ export type GeminiFormState = Omit<GeminiKeyConfig, 'headers' | 'models' | 'weig
   headers: HeaderEntry[];
   modelEntries: ModelEntry[];
   excludedText: string;
+  quota?: ProviderQuotaFormState;
 };
 
 export type ProviderFormState = Omit<ProviderKeyConfig, 'headers' | 'weight' | 'disableCooling'> & {
@@ -60,6 +63,7 @@ export type ProviderFormState = Omit<ProviderKeyConfig, 'headers' | 'weight' | '
   headers: HeaderEntry[];
   modelEntries: ModelEntry[];
   excludedText: string;
+  quota?: ProviderQuotaFormState;
 };
 
 export type VertexFormState = Omit<ProviderKeyConfig, 'headers' | 'weight' | 'disableCooling'> & {
@@ -68,4 +72,5 @@ export type VertexFormState = Omit<ProviderKeyConfig, 'headers' | 'weight' | 'di
   headers: HeaderEntry[];
   modelEntries: ModelEntry[];
   excludedText: string;
+  quota?: ProviderQuotaFormState;
 };

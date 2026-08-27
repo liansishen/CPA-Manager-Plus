@@ -9,7 +9,7 @@ import { ModelInputList } from '@/components/ui/ModelInputList';
 import { Select } from '@/components/ui/Select';
 import { CoolingPolicySelect } from '@/components/providers/CoolingPolicySelect';
 import { SecondaryScreenShell } from '@/components/common/SecondaryScreenShell';
-import { OpenAIKeyTestStatusIndicator, type OpenAIFormApiKeyEntry } from '@/components/providers';
+import { OpenAIKeyTestStatusIndicator, ProviderQuotaEditor, type OpenAIFormApiKeyEntry } from '@/components/providers';
 import { useEdgeSwipeBack } from '@/hooks/useEdgeSwipeBack';
 import { useNotificationStore } from '@/stores';
 import { apiCallApi, getApiCallErrorDetails } from '@/services/api';
@@ -27,10 +27,15 @@ import {
   getCredentialWeightError,
   toCredentialWeightInputValue,
 } from '@/utils/credentialWeight';
+import { buildEmptyProviderQuota } from '@/utils/quota/providerQuota';
 import styles from './AiProvidersPage.module.scss';
 import layoutStyles from './AiProvidersEditLayout.module.scss';
 
 const OPENAI_TEST_TIMEOUT_MS = 30_000;
+const buildOpenAIFormEntry = (): OpenAIFormApiKeyEntry => ({
+  ...buildApiKeyEntry(),
+  quota: buildEmptyProviderQuota(),
+});
 
 const getErrorMessage = (err: unknown) => {
   if (err instanceof Error) return err.message;
@@ -328,7 +333,7 @@ export function AiProvidersOpenAIEditPage() {
   };
 
   const renderKeyEntries = (entries: OpenAIFormApiKeyEntry[]) => {
-    const list = entries.length ? entries : [buildApiKeyEntry()];
+    const list = entries.length ? entries : [buildOpenAIFormEntry()];
 
     const updateEntry = (idx: number, field: keyof OpenAIFormApiKeyEntry, value: string) => {
       const next = list.map((entry, i) => (i === idx ? { ...entry, [field]: value } : entry));
@@ -344,11 +349,26 @@ export function AiProvidersOpenAIEditPage() {
       setForm((prev) => ({ ...prev, apiKeyEntries: next }));
     };
 
+    const updateQuota = (
+      idx: number,
+      patch: Partial<NonNullable<OpenAIFormApiKeyEntry['quota']>>
+    ) => {
+      const next = list.map((entry, i) =>
+        i === idx
+          ? {
+              ...entry,
+              quota: { ...buildEmptyProviderQuota(), ...entry.quota, ...patch },
+            }
+          : entry
+      );
+      setForm((prev) => ({ ...prev, apiKeyEntries: next }));
+    };
+
     const removeEntry = (idx: number) => {
       const next = list.filter((_, i) => i !== idx);
       setForm((prev) => ({
         ...prev,
-        apiKeyEntries: next.length ? next : [buildApiKeyEntry()],
+        apiKeyEntries: next.length ? next : [buildOpenAIFormEntry()],
       }));
       setDraftKeyTestStatuses(removeKeyTestStatusAtIndex(keyTestStatuses, idx, list.length));
       setTestStatus('idle');
@@ -356,7 +376,7 @@ export function AiProvidersOpenAIEditPage() {
     };
 
     const addEntry = () => {
-      setForm((prev) => ({ ...prev, apiKeyEntries: [...list, buildApiKeyEntry()] }));
+      setForm((prev) => ({ ...prev, apiKeyEntries: [...list, buildOpenAIFormEntry()] }));
       setDraftKeyTestStatuses(appendIdleKeyTestStatus(keyTestStatuses, list.length));
       setTestStatus('idle');
       setTestMessage('');
@@ -397,6 +417,7 @@ export function AiProvidersOpenAIEditPage() {
             const canTestKey =
               Boolean(entry.apiKey?.trim() || normalizeAuthIndex(entry.authIndex)) &&
               hasConfiguredModels;
+            const quota = entry.quota ?? buildEmptyProviderQuota();
 
             return (
               <div key={index} className={styles.keyTableRow}>
@@ -481,6 +502,11 @@ export function AiProvidersOpenAIEditPage() {
                     {t('common.delete')}
                   </Button>
                 </div>
+                <ProviderQuotaEditor
+                  quota={quota}
+                  onChange={(patch) => updateQuota(index, patch)}
+                  disabled={saving || disableControls || isTestingKeys}
+                />
               </div>
             );
           })}

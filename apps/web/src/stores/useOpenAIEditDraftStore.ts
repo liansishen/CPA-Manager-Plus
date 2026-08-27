@@ -11,6 +11,10 @@
 import type { SetStateAction } from 'react';
 import { create } from 'zustand';
 import type { OpenAIFormState } from '@/components/providers/types';
+import {
+  buildEmptyProviderQuota,
+  normalizeProviderQuotaForComparison,
+} from '@/utils/quota/providerQuota';
 import type { CoolingPolicy } from '@/types';
 import { buildApiKeyEntry } from '@/components/providers/utils';
 import type { CredentialWeightComparisonValue } from '@/utils/credentialWeight';
@@ -35,6 +39,7 @@ export type OpenAIEditBaseline = {
     proxyUrl: string;
     authIndex: string;
     headers: Array<{ key: string; value: string }>;
+    quota: ReturnType<typeof normalizeProviderQuotaForComparison>;
   }>;
   models: Array<{ name: string; alias: string }>;
   testModel: string;
@@ -76,7 +81,7 @@ const buildEmptyForm = (): OpenAIFormState => ({
   prefix: '',
   baseUrl: '',
   headers: [],
-  apiKeyEntries: [buildApiKeyEntry()],
+  apiKeyEntries: [{ ...buildApiKeyEntry(), quota: buildEmptyProviderQuota() }],
   modelEntries: [{ name: '', alias: '' }],
   testModel: undefined,
   disableCooling: 'inherit',

@@ -1238,6 +1238,10 @@ export const getAccountQuotaProviderLabel = (
       return t('kimi_quota.title');
     case 'xai':
       return t('xai_quota.title');
+    case 'gemini':
+    case 'interactions':
+    case 'vertex':
+      return t('ai_providers.custom_quota_title', { defaultValue: 'Custom quota' });
     case 'openai':
       return t('ai_providers.openai_quota_title', { defaultValue: 'OpenAI-compatible quota' });
     case 'codex':
@@ -1256,6 +1260,12 @@ const getAccountQuotaEmptyMessage = (provider: MonitoringAccountQuotaProvider, t
       return t('kimi_quota.empty_data');
     case 'xai':
       return t('xai_quota.empty_data');
+    case 'gemini':
+    case 'interactions':
+    case 'vertex':
+      return t('ai_providers.custom_quota_empty', {
+        defaultValue: 'No quota windows were returned.',
+      });
     case 'openai':
       return t('ai_providers.openai_quota_empty', {
         defaultValue: 'No quota windows were returned.',
@@ -1414,6 +1424,39 @@ export const requestAccountQuota = async (
   t: TFunction,
   requestScope?: AccountQuotaRequestScope
 ): Promise<AccountQuotaEntry> => {
+  if (target.customQuotaBindingKey || target.customQuotaBinding) {
+    const bindingKey = target.customQuotaBindingKey;
+    const binding = target.customQuotaBinding;
+    if (!bindingKey || !binding || !requestScope?.serviceBase) {
+      throw new Error(
+        t('monitoring.custom_quota_config_missing', {
+          defaultValue: 'Custom quota lookup is not configured for this account.',
+        })
+      );
+    }
+    const response = await usageServiceApi.queryCustomQuota(
+      requestScope.serviceBase,
+      bindingKey,
+      requestScope.managementKey
+    );
+    if (response.status < 200 || response.status >= 300) {
+      throw new Error(
+        t('monitoring.custom_quota_http_error', {
+          status: response.status,
+          defaultValue: `Custom quota endpoint returned HTTP ${response.status}.`,
+        })
+      );
+    }
+    return stampAccountQuotaFetchTime({
+      ...buildBaseAccountQuotaEntry(target, t),
+      windows: buildCustomQuotaAccountWindows(
+        response.body,
+        binding,
+        t,
+        response.fetchedAtMs || Date.now()
+      ),
+    });
+  }
   switch (target.provider) {
     case 'antigravity': {
       const { groups } = await fetchAntigravityQuota(target.file, t);
@@ -1468,41 +1511,16 @@ export const requestAccountQuota = async (
         windows: billing.officialApiHealth ? [] : buildXaiAccountQuotaWindows(billing, t),
       });
     }
-    case 'openai': {
-      const bindingKey = target.customQuotaBindingKey;
-      const binding = target.customQuotaBinding;
-      if (!bindingKey || !binding || !requestScope?.serviceBase) {
-        throw new Error(
-          t('monitoring.custom_quota_config_missing', {
-            defaultValue: 'Custom quota lookup is not configured for this account.',
-          })
-        );
-      }
-      const response = await usageServiceApi.queryCustomQuota(
-        requestScope.serviceBase,
-        bindingKey,
-        requestScope.managementKey
+    case 'gemini':
+    case 'interactions':
+    case 'openai':
+    case 'vertex':
+      throw new Error(
+        t('monitoring.custom_quota_config_missing', {
+          defaultValue: 'Custom quota lookup is not configured for this account.',
+        })
       );
-      if (response.status < 200 || response.status >= 300) {
-        throw new Error(
-          t('monitoring.custom_quota_http_error', {
-            status: response.status,
-            defaultValue: `Custom quota endpoint returned HTTP ${response.status}.`,
-          })
-        );
-      }
-      return stampAccountQuotaFetchTime({
-        ...buildBaseAccountQuotaEntry(target, t),
-        windows: buildCustomQuotaAccountWindows(
-          response.body,
-          binding,
-          t,
-          response.fetchedAtMs || Date.now()
-        ),
-      });
-    }
     case 'codex':
-    default: {
       const quota = await fetchCodexQuota(target.file, t);
       const planLabel = getCodexPlanLabel(quota.planType ?? target.planType, t);
       return stampAccountQuotaFetchTime({

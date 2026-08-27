@@ -10,7 +10,9 @@ import { Modal } from '@/components/ui/Modal';
 import { SelectionCheckbox } from '@/components/ui/SelectionCheckbox';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { CoolingPolicySelect } from '@/components/providers/CoolingPolicySelect';
+import { ProviderQuotaEditor } from '@/components/providers/ProviderQuotaEditor';
 import { apiCallApi, getApiCallErrorMessage, modelsApi, providersApi } from '@/services/api';
+import { usageServiceApi } from '@/services/api/usageService';
 import { useConfigStore, useNotificationStore } from '@/stores';
 import {
   coolingPolicyFromOverride,
@@ -32,6 +34,19 @@ import {
 } from '@/components/providers/utils';
 import { modelsToEntries } from '@/components/ui/modelInputListUtils';
 import type { ProviderFormState } from '@/components/providers';
+import {
+  buildProviderQuotaManagerConfig,
+  hasProviderQuotaBinding,
+  hasProviderQuotaState,
+  useProviderQuotaManagerConfig,
+} from '../hooks/useProviderQuotaManagerConfig';
+import {
+  buildEmptyProviderQuota,
+  findProviderQuotaBinding,
+  isProviderQuotaInvalid,
+  normalizeProviderQuotaForComparison,
+  quotaBindingToForm,
+} from '@/utils/quota/providerQuota';
 import { CredentialWeightInput } from '../CredentialWeightInput';
 import {
   getCredentialWeightComparisonValue,
@@ -68,6 +83,7 @@ const buildEmptyForm = (): ProviderFormState => ({
   modelEntries: [{ name: '', alias: '' }],
   excludedText: '',
   disableCooling: 'inherit',
+  quota: buildEmptyProviderQuota(),
 });
 
 const normalizeClaudeModelEntries = (entries: ProviderFormState['modelEntries']) =>
@@ -122,6 +138,7 @@ const buildClaudeBaseline = (form: ProviderFormState) => ({
   models: normalizeClaudeModelEntries(form.modelEntries),
   excludedModels: parseExcludedModels(form.excludedText ?? ''),
   cloak: normalizeCloakConfig(form.cloak),
+  quota: normalizeProviderQuotaForComparison(form.quota),
 });
 
 const getErrorMessage = (err: unknown) => {
@@ -156,6 +173,13 @@ export function ClaudeEditDrawer({
   const fetchConfig = useConfigStore((state) => state.fetchConfig);
   const updateConfigValue = useConfigStore((state) => state.updateConfigValue);
   const clearCache = useConfigStore((state) => state.clearCache);
+  const {
+    managerConfig,
+    managerConfigLoaded,
+    managementKey,
+    quotaServiceBase,
+    setManagerConfig,
+  } = useProviderQuotaManagerConfig(open);
 
   const [configs, setConfigs] = useState<ProviderKeyConfig[]>([]);
   const [loading, setLoading] = useState(false);
@@ -217,7 +241,7 @@ export function ClaudeEditDrawer({
   }, [open, fetchConfig, showNotification, t]);
 
   useEffect(() => {
-    if (!open || !loaded) return;
+    if (!open || !loaded || !managerConfigLoaded) return;
     if (initialData) {
       const seededForm: ProviderFormState = {
         ...initialData,
@@ -225,6 +249,9 @@ export function ClaudeEditDrawer({
         headers: headersToEntries(initialData.headers),
         modelEntries: modelsToEntries(initialData.models),
         excludedText: excludedModelsToText(initialData.excludedModels),
+        quota: quotaBindingToForm(
+          findProviderQuotaBinding(managerConfig, 'claude', `claude:${editIndex}`, initialData.apiKey)
+        ),
       };
       setForm(seededForm);
       setBaseline(buildClaudeBaseline(seededForm));
@@ -238,7 +265,7 @@ export function ClaudeEditDrawer({
     }
     setTestStatus('idle');
     setTestMessage('');
-  }, [open, loaded, initialData]);
+  }, [open, loaded, managerConfig, managerConfigLoaded, initialData, editIndex]);
 
   useEffect(() => {
     if (!form.cloak) return;
@@ -275,7 +302,8 @@ export function ClaudeEditDrawer({
         baseline.excludedModels,
         parseExcludedModels(form.excludedText ?? '')
       ) ||
-      !areCloakConfigsEqual(baseline.cloak, normalizeCloakConfig(form.cloak))
+      !areCloakConfigsEqual(baseline.cloak, normalizeCloakConfig(form.cloak)) ||
+      JSON.stringify(baseline.quota) !== JSON.stringify(normalizeProviderQuotaForComparison(form.quota))
     );
   }, [baseline, form]);
 
@@ -584,6 +612,27 @@ export function ClaudeEditDrawer({
       );
       return;
     }
+    if (isProviderQuotaInvalid(form.quota)) {
+      showNotification(
+        t('ai_providers.openai_quota_invalid', {
+          defaultValue: 'Enabled quota lookup needs a URL and authentication key.',
+        }),
+        'error'
+      );
+      return;
+    }
+    const providerName = `claude:${editIndex ?? configs.length}`;
+    const shouldSaveCustomQuota =
+      hasProviderQuotaState(form.quota) || hasProviderQuotaBinding(managerConfig, providerName);
+    if (shouldSaveCustomQuota && (!managerConfig || !quotaServiceBase || !managementKey)) {
+      showNotification(
+        t('ai_providers.openai_quota_service_unavailable', {
+          defaultValue: 'The Manager Server is unavailable; quota settings were not saved.',
+        }),
+        'error'
+      );
+      return;
+    }
     setSaving(true);
     try {
       const payload: ProviderKeyConfig = {
@@ -613,6 +662,14 @@ export function ClaudeEditDrawer({
         await providersApi.updateClaudeConfig(configs[editIndex], payload);
       } else {
         await providersApi.createClaudeConfig(payload);
+      }
+      if (shouldSaveCustomQuota && managerConfig && quotaServiceBase && managementKey) {
+        const managerResponse = await usageServiceApi.saveManagerConfig(
+          quotaServiceBase,
+          buildProviderQuotaManagerConfig(managerConfig, 'claude', providerName, apiKey, form.quota),
+          managementKey
+        );
+        setManagerConfig(managerResponse.config);
       }
       const syncedList = await providersApi.getClaudeConfigs().catch(() =>
         editIndex !== null
@@ -645,6 +702,14 @@ export function ClaudeEditDrawer({
     showNotification,
     t,
     updateConfigValue,
+    buildProviderQuotaManagerConfig,
+    hasProviderQuotaBinding,
+    hasProviderQuotaState,
+    isProviderQuotaInvalid,
+    managerConfig,
+    managementKey,
+    quotaServiceBase,
+    setManagerConfig,
   ]);
 
   const handleClose = useCallback(() => {
@@ -729,6 +794,16 @@ export function ClaudeEditDrawer({
               onChange={(value) => setForm((prev) => ({ ...prev, disableCooling: value }))}
               disabled={saving || disabled || isTesting}
               id="claude-drawer-cooling-policy"
+            />
+            <ProviderQuotaEditor
+              quota={form.quota ?? buildEmptyProviderQuota()}
+              onChange={(patch) =>
+                setForm((prev) => ({
+                  ...prev,
+                  quota: { ...buildEmptyProviderQuota(), ...prev.quota, ...patch },
+                }))
+              }
+              disabled={saving || disabled || isTesting}
             />
             <div className="form-group">
               <label>{t('ai_providers.rebuild_mid_system_message_label')}</label>

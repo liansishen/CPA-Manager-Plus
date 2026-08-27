@@ -10,7 +10,9 @@ import { Modal } from '@/components/ui/Modal';
 import { SelectionCheckbox } from '@/components/ui/SelectionCheckbox';
 import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { CoolingPolicySelect } from '@/components/providers/CoolingPolicySelect';
+import { ProviderQuotaEditor } from '@/components/providers/ProviderQuotaEditor';
 import { apiCallApi, getApiCallErrorMessage, modelsApi, providersApi } from '@/services/api';
+import { usageServiceApi } from '@/services/api/usageService';
 import { useConfigStore, useNotificationStore } from '@/stores';
 import {
   coolingPolicyFromOverride,
@@ -37,6 +39,19 @@ import {
 } from '@/components/providers/utils';
 import { CredentialWeightInput } from '../CredentialWeightInput';
 import type { ProviderFormState } from '../types';
+import {
+  buildProviderQuotaManagerConfig,
+  hasProviderQuotaBinding,
+  hasProviderQuotaState,
+  useProviderQuotaManagerConfig,
+} from '../hooks/useProviderQuotaManagerConfig';
+import {
+  buildEmptyProviderQuota,
+  findProviderQuotaBinding,
+  isProviderQuotaInvalid,
+  normalizeProviderQuotaForComparison,
+  quotaBindingToForm,
+} from '@/utils/quota/providerQuota';
 import {
   getCredentialWeightComparisonValue,
   getCredentialWeightError,
@@ -74,6 +89,7 @@ const buildEmptyForm = (baseUrl = ''): ProviderFormState => ({
   modelEntries: [{ name: '', alias: '' }],
   excludedText: '',
   disableCooling: 'inherit',
+  quota: buildEmptyProviderQuota(),
 });
 
 const normalizeModelEntries = (entries: ProviderFormState['modelEntries']) =>
@@ -102,6 +118,7 @@ const buildCodexBaseline = (form: ProviderFormState) => ({
   headers: normalizeHeaderEntries(form.headers),
   models: normalizeModelEntries(form.modelEntries),
   excludedModels: parseExcludedModels(form.excludedText ?? ''),
+  quota: normalizeProviderQuotaForComparison(form.quota),
 });
 
 const getErrorMessage = (err: unknown) => {
@@ -123,6 +140,13 @@ export function CodexEditDrawer({
   const fetchConfig = useConfigStore((state) => state.fetchConfig);
   const updateConfigValue = useConfigStore((state) => state.updateConfigValue);
   const clearCache = useConfigStore((state) => state.clearCache);
+  const {
+    managerConfig,
+    managerConfigLoaded,
+    managementKey,
+    quotaServiceBase,
+    setManagerConfig,
+  } = useProviderQuotaManagerConfig(open);
   const isXAI = providerKind === 'xai';
   const providerSection = isXAI ? 'xai-api-key' : 'codex-api-key';
   const defaultBaseUrl = isXAI ? XAI_API_BASE_URL : '';
@@ -193,7 +217,7 @@ export function CodexEditDrawer({
   }, [open]);
 
   useEffect(() => {
-    if (!open || !loaded) return;
+    if (!open || !loaded || !managerConfigLoaded) return;
     if (initialData) {
       const nextForm: ProviderFormState = {
         ...initialData,
@@ -202,6 +226,9 @@ export function CodexEditDrawer({
         headers: headersToEntries(initialData.headers),
         modelEntries: modelsToEntries(initialData.models),
         excludedText: excludedModelsToText(initialData.excludedModels),
+        quota: quotaBindingToForm(
+          findProviderQuotaBinding(managerConfig, providerKind, `${providerKind}:${editIndex}`, initialData.apiKey)
+        ),
       };
       setForm(nextForm);
       setBaseline(buildCodexBaseline(nextForm));
@@ -215,7 +242,7 @@ export function CodexEditDrawer({
     }
     setTestStatus('idle');
     setTestMessage('');
-  }, [defaultBaseUrl, open, loaded, initialData]);
+  }, [defaultBaseUrl, open, loaded, managerConfig, managerConfigLoaded, initialData, providerKind, editIndex]);
 
   const canSave =
     loaded &&
@@ -245,7 +272,8 @@ export function CodexEditDrawer({
       baseline.proxyUrl !== String(form.proxyUrl ?? '').trim() ||
       !areKeyValueEntriesEqual(baseline.headers, normalizeHeaderEntries(form.headers)) ||
       !areModelEntriesEqual(baseline.models, normalizeModelEntries(form.modelEntries)) ||
-      !areStringArraysEqual(baseline.excludedModels, parseExcludedModels(form.excludedText ?? ''))
+      !areStringArraysEqual(baseline.excludedModels, parseExcludedModels(form.excludedText ?? '')) ||
+      JSON.stringify(baseline.quota) !== JSON.stringify(normalizeProviderQuotaForComparison(form.quota))
     );
   }, [baseline, form]);
 
@@ -505,6 +533,27 @@ export function CodexEditDrawer({
         'error'
       );
       return;
+    if (isProviderQuotaInvalid(form.quota)) {
+      showNotification(
+        t('ai_providers.openai_quota_invalid', {
+          defaultValue: 'Enabled quota lookup needs a URL and authentication key.',
+        }),
+        'error'
+      );
+      return;
+    }
+    const providerName = `${providerKind}:${editIndex ?? configs.length}`;
+    const shouldSaveCustomQuota =
+      hasProviderQuotaState(form.quota) || hasProviderQuotaBinding(managerConfig, providerName);
+    if (shouldSaveCustomQuota && (!managerConfig || !quotaServiceBase || !managementKey)) {
+      showNotification(
+        t('ai_providers.openai_quota_service_unavailable', {
+          defaultValue: 'The Manager Server is unavailable; quota settings were not saved.',
+        }),
+        'error'
+      );
+      return;
+    }
     }
     setSaving(true);
     setError('');
@@ -536,6 +585,14 @@ export function CodexEditDrawer({
         } else {
           await providersApi.createCodexConfig(payload);
         }
+      }
+      if (shouldSaveCustomQuota && managerConfig && quotaServiceBase && managementKey) {
+        const managerResponse = await usageServiceApi.saveManagerConfig(
+          quotaServiceBase,
+          buildProviderQuotaManagerConfig(managerConfig, providerKind, providerName, apiKey, form.quota),
+          managementKey
+        );
+        setManagerConfig(managerResponse.config);
       }
       const syncedList = await (
         isXAI ? providersApi.getXAIConfigs() : providersApi.getCodexConfigs()
@@ -573,6 +630,15 @@ export function CodexEditDrawer({
     showNotification,
     t,
     updateConfigValue,
+    buildProviderQuotaManagerConfig,
+    hasProviderQuotaBinding,
+    hasProviderQuotaState,
+    isProviderQuotaInvalid,
+    managerConfig,
+    managementKey,
+    providerKind,
+    quotaServiceBase,
+    setManagerConfig,
   ]);
 
   const handleClose = useCallback(() => {
@@ -848,6 +914,16 @@ export function CodexEditDrawer({
               onChange={(value) => setForm((prev) => ({ ...prev, disableCooling: value }))}
               disabled={disabled || saving}
               id={`${providerSection}-cooling-policy`}
+            />
+            <ProviderQuotaEditor
+              quota={form.quota ?? buildEmptyProviderQuota()}
+              onChange={(patch) =>
+                setForm((prev) => ({
+                  ...prev,
+                  quota: { ...buildEmptyProviderQuota(), ...prev.quota, ...patch },
+                }))
+              }
+              disabled={disabled || saving}
             />
 
             <div className="form-group">

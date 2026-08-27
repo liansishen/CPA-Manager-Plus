@@ -821,6 +821,7 @@ export function MonitoringCenterPage() {
       buildSourceProviderStateMap(
         buildSourceInfoMap({
           geminiApiKeys: config?.geminiApiKeys || [],
+          interactionsApiKeys: config?.interactionsApiKeys || [],
           claudeApiKeys: config?.claudeApiKeys || [],
           codexApiKeys: config?.codexApiKeys || [],
           xaiApiKeys: config?.xaiApiKeys || [],
@@ -975,13 +976,13 @@ export function MonitoringCenterPage() {
       buildMonitoringCustomQuotaTargetsByRowId(
         accountRows,
         accountAuthStateByRowId,
-        config?.openaiCompatibility || [],
+        config || {},
         requestMonitoringAvailability.managerConfig
       ),
     [
       accountAuthStateByRowId,
       accountRows,
-      config?.openaiCompatibility,
+      config,
       requestMonitoringAvailability.managerConfig,
     ]
   );
