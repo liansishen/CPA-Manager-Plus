@@ -285,7 +285,11 @@ func (r *repository) protectManagerConfig(cfg model.ManagerConfig) (model.Manage
 	if r.protector == nil {
 		return cfg, nil
 	}
-	value, err := r.protector.ProtectString(cfg.CPAConnection.ManagementKey)
+	protect := func(value string) (string, error) {
+		return r.protector.ProtectString(value)
+	}
+
+	value, err := protect(cfg.CPAConnection.ManagementKey)
 	if err != nil {
 		return model.ManagerConfig{}, err
 	}
@@ -293,14 +297,30 @@ func (r *repository) protectManagerConfig(cfg model.ManagerConfig) (model.Manage
 	if cfg.CustomQuota.Bindings != nil {
 		protectedBindings := make(map[string]model.ManagerCustomQuotaBinding, len(cfg.CustomQuota.Bindings))
 		for key, binding := range cfg.CustomQuota.Bindings {
-			protectedKey, err := r.protector.ProtectString(binding.QuotaAPIKey)
+			protectedKey, err := protect(binding.QuotaAPIKey)
+			if err != nil {
+				return model.ManagerConfig{}, err
+			}
+			protectedPassword, err := protect(binding.Password)
+			if err != nil {
+				return model.ManagerConfig{}, err
+			}
+			protectedAccessToken, err := protect(binding.AccessToken)
+			if err != nil {
+				return model.ManagerConfig{}, err
+			}
+			protectedRefreshToken, err := protect(binding.RefreshToken)
 			if err != nil {
 				return model.ManagerConfig{}, err
 			}
 			binding.QuotaAPIKey = protectedKey
-			if protectedKey != "" {
-				binding.QuotaAPIKeyConfigured = true
-			}
+			binding.Password = protectedPassword
+			binding.AccessToken = protectedAccessToken
+			binding.RefreshToken = protectedRefreshToken
+			binding.QuotaAPIKeyConfigured = protectedKey != ""
+			binding.PasswordConfigured = protectedPassword != ""
+			binding.AccessTokenConfigured = protectedAccessToken != ""
+			binding.RefreshTokenConfigured = protectedRefreshToken != ""
 			protectedBindings[key] = binding
 		}
 		cfg.CustomQuota.Bindings = protectedBindings
@@ -312,7 +332,11 @@ func (r *repository) unprotectManagerConfig(cfg model.ManagerConfig) (model.Mana
 	if r.protector == nil {
 		return cfg, nil
 	}
-	value, err := r.protector.UnprotectString(cfg.CPAConnection.ManagementKey)
+	unprotect := func(value string) (string, error) {
+		return r.protector.UnprotectString(value)
+	}
+
+	value, err := unprotect(cfg.CPAConnection.ManagementKey)
 	if err != nil {
 		return model.ManagerConfig{}, err
 	}
@@ -320,14 +344,30 @@ func (r *repository) unprotectManagerConfig(cfg model.ManagerConfig) (model.Mana
 	if cfg.CustomQuota.Bindings != nil {
 		unprotectedBindings := make(map[string]model.ManagerCustomQuotaBinding, len(cfg.CustomQuota.Bindings))
 		for key, binding := range cfg.CustomQuota.Bindings {
-			unprotectedKey, err := r.protector.UnprotectString(binding.QuotaAPIKey)
+			unprotectedKey, err := unprotect(binding.QuotaAPIKey)
+			if err != nil {
+				return model.ManagerConfig{}, err
+			}
+			unprotectedPassword, err := unprotect(binding.Password)
+			if err != nil {
+				return model.ManagerConfig{}, err
+			}
+			unprotectedAccessToken, err := unprotect(binding.AccessToken)
+			if err != nil {
+				return model.ManagerConfig{}, err
+			}
+			unprotectedRefreshToken, err := unprotect(binding.RefreshToken)
 			if err != nil {
 				return model.ManagerConfig{}, err
 			}
 			binding.QuotaAPIKey = unprotectedKey
-			if unprotectedKey != "" {
-				binding.QuotaAPIKeyConfigured = true
-			}
+			binding.Password = unprotectedPassword
+			binding.AccessToken = unprotectedAccessToken
+			binding.RefreshToken = unprotectedRefreshToken
+			binding.QuotaAPIKeyConfigured = unprotectedKey != ""
+			binding.PasswordConfigured = unprotectedPassword != ""
+			binding.AccessTokenConfigured = unprotectedAccessToken != ""
+			binding.RefreshTokenConfigured = unprotectedRefreshToken != ""
 			unprotectedBindings[key] = binding
 		}
 		cfg.CustomQuota.Bindings = unprotectedBindings

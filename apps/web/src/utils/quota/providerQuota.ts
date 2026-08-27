@@ -23,6 +23,8 @@ export const buildEmptyProviderQuota = (): ProviderQuotaFormState => ({
   url: '',
   authMode: 'bearer',
   quotaApiKey: '',
+  username: '',
+  password: '',
   apiKeyHeader: 'Authorization',
   proxyUrl: '',
   headers: [],
@@ -42,12 +44,19 @@ export const normalizeProviderQuotaForComparison = (quota?: ProviderQuotaFormSta
   if (!quota) return null;
   const url = String(quota.url ?? '').trim();
   const quotaApiKey = String(quota.quotaApiKey ?? '').trim();
+  const username = String(quota.username ?? '').trim();
+  const password = String(quota.password ?? '');
   const hasValues =
     Boolean(quota.hasBinding) ||
     Boolean(quota.enabled) ||
     Boolean(url) ||
     Boolean(quotaApiKey) ||
     Boolean(quota.quotaApiKeyConfigured) ||
+    Boolean(username) ||
+    Boolean(password) ||
+    Boolean(quota.passwordConfigured) ||
+    Boolean(quota.accessTokenConfigured) ||
+    Boolean(quota.refreshTokenConfigured) ||
     Boolean(quota.proxyUrl?.trim()) ||
     quota.headers.length > 0 ||
     Object.keys(quota.mapping).length > 0;
@@ -59,6 +68,11 @@ export const normalizeProviderQuotaForComparison = (quota?: ProviderQuotaFormSta
     authMode: quota.authMode,
     quotaApiKey,
     quotaApiKeyConfigured: Boolean(quota.quotaApiKeyConfigured),
+    username,
+    password,
+    passwordConfigured: Boolean(quota.passwordConfigured),
+    accessTokenConfigured: Boolean(quota.accessTokenConfigured),
+    refreshTokenConfigured: Boolean(quota.refreshTokenConfigured),
     apiKeyHeader: quota.apiKeyHeader.trim(),
     proxyUrl: quota.proxyUrl.trim(),
     headers: Object.entries(buildHeaderObject(quota.headers))
@@ -78,6 +92,11 @@ export const quotaBindingToForm = (binding?: ManagerCustomQuotaBinding): Provide
     authMode: binding.authMode === 'header' || binding.authMode === 'none' ? binding.authMode : 'bearer',
     quotaApiKey: '',
     quotaApiKeyConfigured: Boolean(binding.quotaApiKeyConfigured),
+    username: binding.username ?? '',
+    password: '',
+    passwordConfigured: Boolean(binding.passwordConfigured),
+    accessTokenConfigured: Boolean(binding.accessTokenConfigured),
+    refreshTokenConfigured: Boolean(binding.refreshTokenConfigured),
     apiKeyHeader: binding.apiKeyHeader ?? 'Authorization',
     proxyUrl: binding.proxyUrl ?? '',
     headers: headersToEntries(binding.headers),
@@ -131,6 +150,11 @@ export const buildProviderQuotaBindings = (
     Boolean(url) ||
     Boolean(quota.quotaApiKey.trim()) ||
     Boolean(quota.quotaApiKeyConfigured) ||
+    Boolean(quota.username.trim()) ||
+    Boolean(quota.password) ||
+    Boolean(quota.passwordConfigured) ||
+    Boolean(quota.accessTokenConfigured) ||
+    Boolean(quota.refreshTokenConfigured) ||
     Boolean(quota.proxyUrl.trim()) ||
     quota.headers.length > 0 ||
     Object.keys(quota.mapping).length > 0;
@@ -144,6 +168,11 @@ export const buildProviderQuotaBindings = (
       authMode: quota.authMode,
       quotaApiKey: quota.quotaApiKey.trim(),
       quotaApiKeyConfigured: Boolean(quota.quotaApiKeyConfigured || quota.quotaApiKey.trim()),
+      username: quota.username.trim() || undefined,
+      password: quota.password || undefined,
+      passwordConfigured: Boolean(quota.passwordConfigured || quota.password),
+      accessTokenConfigured: Boolean(quota.accessTokenConfigured),
+      refreshTokenConfigured: Boolean(quota.refreshTokenConfigured),
       apiKeyHeader: quota.apiKeyHeader.trim() || undefined,
       headers: Object.keys(headers).length ? headers : undefined,
       proxyUrl: quota.proxyUrl.trim() || undefined,
@@ -155,9 +184,21 @@ export const buildProviderQuotaBindings = (
   };
 };
 
-export const isProviderQuotaInvalid = (quota?: ProviderQuotaFormState) =>
-  Boolean(
-    quota?.enabled &&
-      (!quota.url.trim() ||
-        (quota.authMode !== 'none' && !quota.quotaApiKey.trim() && !quota.quotaApiKeyConfigured))
+export const isProviderQuotaInvalid = (quota?: ProviderQuotaFormState) => {
+  if (!quota?.enabled) return false;
+  const hasSub2APICredentials =
+    Boolean(quota.username.trim()) &&
+    Boolean(
+      quota.password.trim() ||
+        quota.passwordConfigured ||
+        quota.accessTokenConfigured ||
+        quota.refreshTokenConfigured ||
+        quota.quotaApiKeyConfigured
+    );
+  return Boolean(
+    !quota.url.trim() ||
+      (quota.kind === 'sub2api'
+        ? !hasSub2APICredentials
+        : quota.authMode !== 'none' && !quota.quotaApiKey.trim() && !quota.quotaApiKeyConfigured)
   );
+};

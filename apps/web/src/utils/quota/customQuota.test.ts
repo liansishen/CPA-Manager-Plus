@@ -50,13 +50,15 @@ describe('buildCustomQuotaAccountWindows', () => {
     });
   });
 
-  it('parses Sub2API quota and rate-limit windows with stable labels', () => {
+  it('parses only the Sub2API weekly subscription window', () => {
     const windows = buildCustomQuotaAccountWindows(
       {
         data: {
-          quota: { used: 20, limit: 100, remaining: 80, unit: 'requests' },
+          weekly_usage_usd: 20,
+          group: { weekly_limit_usd: 100 },
           rate_limits: [{ name: 'five-hour', used_percent: 0.25, reset_after_seconds: 300 }],
           daily: { name: 'daily', used: 40, limit: 50 },
+          monthly: { name: 'monthly', used: 80, limit: 100 },
         },
       },
       { kind: 'sub2api', url: 'https://sub2api.example.com' },
@@ -64,10 +66,13 @@ describe('buildCustomQuotaAccountWindows', () => {
       Date.parse('2026-08-27T12:00:00.000Z')
     );
 
-    expect(windows.map((window) => window.label)).toEqual(['Quota', 'five-hour', 'daily']);
-    expect(windows[0]).toMatchObject({ remainingPercent: 80, usageLabel: '20 / 100 requests' });
-    expect(windows[1]).toMatchObject({ remainingPercent: 75, resetAccuracy: 'estimated' });
-    expect(windows[2]).toMatchObject({ label: 'daily', remainingPercent: 20, usageLabel: '40 / 50' });
+    expect(windows).toHaveLength(1);
+    expect(windows[0]).toMatchObject({
+      id: 'sub2api-weekly',
+      label: 'Weekly',
+      remainingPercent: 80,
+      usageLabel: '20 / 100 USD',
+    });
   });
 
   it('rejects responses without recognized quota windows', () => {

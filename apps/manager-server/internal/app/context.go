@@ -17,9 +17,9 @@ import (
 	codexinspectionsvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/codexinspection"
 	collectorsvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/collector"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/cpaauthfiles"
+	customquotasvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/customquota"
 	dashboardsvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/dashboard"
 	managerconfigsvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/managerconfig"
-	customquotasvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/customquota"
 	modelpricesvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/modelprice"
 	monitoringsvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/monitoring"
 	panelsvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/panel"
@@ -137,7 +137,7 @@ func fromExisting(
 	}
 	collectorService := collectorsvc.New(collectorManager)
 	managerConfigService := managerconfigsvc.New(cfg, st, collectorService)
-	customQuotaService := customquotasvc.New(managerConfigService)
+	customQuotaService := customquotasvc.New(managerConfigService, managerConfigService)
 	accountProcessingPolicyService := automationsvc.New(cfg, st)
 	usageImportBaseDir := strings.TrimSpace(cfg.DataDir)
 	if usageImportBaseDir == "" {
@@ -160,7 +160,7 @@ func fromExisting(
 		AdminAuthService:     adminauthsvc.New(cfg, st),
 		SetupService:         setupsvc.New(cfg, st, collectorService, managerConfigService, startedAt, serviceID),
 		ManagerConfigService: managerConfigService,
-		CustomQuotaService:             customQuotaService,
+		CustomQuotaService:   customQuotaService,
 		CollectorService:     collectorService,
 		UsageService:         usageService,
 		DashboardService:     dashboardsvc.New(st, cfg.DashboardHourlyRollupEnabled),

@@ -34,17 +34,21 @@ type Service struct {
 	collector *collectorservice.Service
 }
 
-
 func publicManagerConfig(cfg store.ManagerConfig) store.ManagerConfig {
 	if cfg.CustomQuota.Bindings == nil {
 		return cfg
 	}
 	publicBindings := make(map[string]store.ManagerCustomQuotaBinding, len(cfg.CustomQuota.Bindings))
 	for key, binding := range cfg.CustomQuota.Bindings {
-		if strings.TrimSpace(binding.QuotaAPIKey) != "" {
-			binding.QuotaAPIKeyConfigured = true
-			binding.QuotaAPIKey = ""
-		}
+		binding.QuotaAPIKeyConfigured = strings.TrimSpace(binding.QuotaAPIKey) != ""
+		binding.QuotaAPIKey = ""
+		binding.PasswordConfigured = strings.TrimSpace(binding.Password) != ""
+		binding.Password = ""
+		binding.AccessTokenConfigured = strings.TrimSpace(binding.AccessToken) != ""
+		binding.AccessToken = ""
+		binding.RefreshTokenConfigured = strings.TrimSpace(binding.RefreshToken) != ""
+		binding.RefreshToken = ""
+		binding.AccessTokenExpiresAtMS = 0
 		binding.Headers = redactCustomQuotaHeaders(binding.Headers)
 		publicBindings[key] = binding
 	}
@@ -153,7 +157,6 @@ func (s *Service) Get(ctx context.Context) (Response, error) {
 	}, nil
 }
 
-
 func (s *Service) ResolveManagerConfig(ctx context.Context) (store.ManagerConfig, bool, error) {
 	cfg, _, found, err := s.ResolveManagerConfigWithSource(ctx)
 	return cfg, found, err
@@ -232,6 +235,38 @@ func (s *Service) Update(ctx context.Context, submitted store.ManagerConfig) (Re
 		Config: publicManagerConfig(next),
 		Source: string(SourceDB),
 	}, nil
+}
+
+func (s *Service) PersistCustomQuotaCredentials(
+	ctx context.Context,
+	bindingKey string,
+	accessToken string,
+	refreshToken string,
+	expiresAtMS int64,
+) error {
+	bindingKey = strings.TrimSpace(bindingKey)
+	if bindingKey == "" {
+		return errors.New("custom quota binding key is required")
+	}
+	cfg, _, found, err := s.ResolveManagerConfigWithSource(ctx)
+	if err != nil {
+		return err
+	}
+	if !found || cfg.CustomQuota.Bindings == nil {
+		return errors.New("custom quota binding not found")
+	}
+	binding, ok := cfg.CustomQuota.Bindings[bindingKey]
+	if !ok {
+		return errors.New("custom quota binding not found")
+	}
+	binding.AccessToken = strings.TrimSpace(accessToken)
+	binding.RefreshToken = strings.TrimSpace(refreshToken)
+	binding.AccessTokenExpiresAtMS = expiresAtMS
+	binding.AccessTokenConfigured = binding.AccessToken != ""
+	binding.RefreshTokenConfigured = binding.RefreshToken != ""
+	cfg.CustomQuota.Bindings[bindingKey] = binding
+	cfg.UpdatedAtMS = time.Now().UnixMilli()
+	return s.store.SaveManagerConfig(ctx, cfg)
 }
 
 func (s *Service) ResolveSetup(ctx context.Context) (store.Setup, bool, error) {
@@ -349,24 +384,46 @@ func (s *Service) MergeSubmittedManagerConfig(base store.ManagerConfig, submitte
 	return next
 }
 
-
 func mergeCustomQuotaBindings(base map[string]store.ManagerCustomQuotaBinding, submitted map[string]store.ManagerCustomQuotaBinding) map[string]store.ManagerCustomQuotaBinding {
 	merged := make(map[string]store.ManagerCustomQuotaBinding, len(submitted))
 	for key, incoming := range submitted {
 		binding := normalizeCustomQuotaBinding(incoming)
 		if previous, ok := base[key]; ok {
+			credentialsReplaced :=
+				(binding.Username != "" && binding.Username != previous.Username) ||
+				(binding.Password != "" && binding.Password != previous.Password)
 			if binding.QuotaAPIKey == "" {
 				binding.QuotaAPIKey = previous.QuotaAPIKey
+			}
+			if binding.Username == "" {
+				binding.Username = previous.Username
+			}
+			if binding.Password == "" {
+				binding.Password = previous.Password
+			}
+			if binding.AccessToken == "" {
+				binding.AccessToken = previous.AccessToken
+			}
+			if binding.RefreshToken == "" {
+				binding.RefreshToken = previous.RefreshToken
+			}
+			if binding.AccessTokenExpiresAtMS == 0 {
+				binding.AccessTokenExpiresAtMS = previous.AccessTokenExpiresAtMS
 			}
 			if binding.Enabled == nil {
 				binding.Enabled = previous.Enabled
 			}
-			if previous.QuotaAPIKey != "" {
-				binding.QuotaAPIKeyConfigured = true
-			}
 			binding.Headers = mergeCustomQuotaHeaders(previous.Headers, binding.Headers)
+			if credentialsReplaced {
+				binding.AccessToken = ""
+				binding.RefreshToken = ""
+				binding.AccessTokenExpiresAtMS = 0
+			}
 		}
 		binding.QuotaAPIKeyConfigured = binding.QuotaAPIKey != ""
+		binding.PasswordConfigured = binding.Password != ""
+		binding.AccessTokenConfigured = binding.AccessToken != ""
+		binding.RefreshTokenConfigured = binding.RefreshToken != ""
 		merged[key] = binding
 	}
 	return merged
@@ -381,6 +438,12 @@ func normalizeCustomQuotaBinding(binding store.ManagerCustomQuotaBinding) store.
 	binding.ProxyURL = strings.TrimSpace(binding.ProxyURL)
 	binding.ProviderName = strings.TrimSpace(binding.ProviderName)
 	binding.APIKeyHash = strings.TrimSpace(binding.APIKeyHash)
+	binding.Username = strings.TrimSpace(binding.Username)
+	binding.AccessToken = strings.TrimSpace(binding.AccessToken)
+	binding.RefreshToken = strings.TrimSpace(binding.RefreshToken)
+	if binding.AccessTokenExpiresAtMS < 0 {
+		binding.AccessTokenExpiresAtMS = 0
+	}
 	binding.Headers = cloneStringMap(binding.Headers)
 	binding.Mapping = cloneStringMap(binding.Mapping)
 	return binding

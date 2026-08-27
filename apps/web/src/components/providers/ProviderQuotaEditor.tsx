@@ -25,6 +25,17 @@ const authOptions = [
 export function ProviderQuotaEditor({ quota, onChange, disabled = false }: ProviderQuotaEditorProps) {
   const { t } = useTranslation();
   const isDisabled = disabled;
+  const isSub2API = quota.kind === 'sub2api';
+  const credentialConfigured = isSub2API
+    ? Boolean(
+        quota.username.trim() &&
+          (quota.password.trim() ||
+            quota.passwordConfigured ||
+            quota.accessTokenConfigured ||
+            quota.refreshTokenConfigured ||
+            quota.quotaApiKeyConfigured)
+      )
+    : Boolean(quota.quotaApiKeyConfigured);
   const updateMapping = (field: string, value: string) =>
     onChange({ mapping: { ...quota.mapping, [field]: value } });
 
@@ -41,10 +52,13 @@ export function ProviderQuotaEditor({ quota, onChange, disabled = false }: Provi
           <span>{t('ai_providers.openai_quota_enabled', { defaultValue: 'Enable quota lookup' })}</span>
         </label>
         <span className={styles.keyQuotaStatus}>
-          {quota.quotaApiKeyConfigured
-            ? t('ai_providers.openai_quota_key_configured', { defaultValue: 'API key configured' })
-            : t('ai_providers.openai_quota_key_missing', { defaultValue: 'API key not configured' })}
-        </span>
+          {credentialConfigured
+            ? t(isSub2API ? 'ai_providers.sub2api_credentials_configured' : 'ai_providers.openai_quota_key_configured', {
+                defaultValue: isSub2API ? 'Sub2API credentials configured' : 'API key configured',
+              })
+            : t(isSub2API ? 'ai_providers.sub2api_credentials_missing' : 'ai_providers.openai_quota_key_missing', {
+                defaultValue: isSub2API ? 'Sub2API credentials not configured' : 'API key not configured',
+              })}
       </div>
       {quota.enabled && (
         <>
@@ -71,49 +85,89 @@ export function ProviderQuotaEditor({ quota, onChange, disabled = false }: Provi
                 placeholder="https://..."
               />
             </label>
-            <label className={styles.keyQuotaField}>
-              <span>{t('ai_providers.openai_quota_auth', { defaultValue: 'Authentication' })}</span>
-              <Select
-                value={quota.authMode}
-                options={authOptions}
-                onChange={(value) => onChange({ authMode: value as ProviderQuotaFormState['authMode'] })}
-                disabled={isDisabled}
-                ariaLabel={t('ai_providers.openai_quota_auth', { defaultValue: 'Authentication' })}
-                className={styles.keyQuotaSelect}
-              />
-            </label>
-            {quota.authMode === 'header' && (
-              <label className={styles.keyQuotaField}>
-                <span>{t('ai_providers.openai_quota_auth_header', { defaultValue: 'API key header' })}</span>
-                <input
-                  type="text"
-                  value={quota.apiKeyHeader}
-                  onChange={(event) => onChange({ apiKeyHeader: event.target.value })}
-                  disabled={isDisabled}
-                  className={`input ${styles.keyQuotaInput}`}
-                  placeholder="X-API-Key"
-                />
-              </label>
-            )}
-            {quota.authMode !== 'none' && (
-              <label className={styles.keyQuotaField}>
-                <span>{t('ai_providers.openai_quota_api_key', { defaultValue: 'Quota API key' })}</span>
-                <input
-                  type="password"
-                  value={quota.quotaApiKey}
-                  onChange={(event) =>
-                    onChange({ quotaApiKey: event.target.value, quotaApiKeyConfigured: false })
-                  }
-                  disabled={isDisabled}
-                  className={`input ${styles.keyQuotaInput}`}
-                  placeholder={
-                    quota.quotaApiKeyConfigured
-                      ? t('ai_providers.openai_quota_key_placeholder', { defaultValue: 'Configured; enter to replace' })
-                      : 'sk-...'
-                  }
-                  autoComplete="new-password"
-                />
-              </label>
+            {isSub2API ? (
+              <>
+                <label className={styles.keyQuotaField}>
+                  <span>{t('ai_providers.sub2api_username', { defaultValue: 'Username / email' })}</span>
+                  <input
+                    type="text"
+                    value={quota.username}
+                    onChange={(event) => onChange({ username: event.target.value })}
+                    disabled={isDisabled}
+                    className={`input ${styles.keyQuotaInput}`}
+                    autoComplete="username"
+                  />
+                </label>
+                <label className={styles.keyQuotaField}>
+                  <span>{t('ai_providers.sub2api_password', { defaultValue: 'Password' })}</span>
+                  <input
+                    type="password"
+                    value={quota.password}
+                    onChange={(event) =>
+                      onChange({ password: event.target.value, passwordConfigured: false })
+                    }
+                    disabled={isDisabled}
+                    className={`input ${styles.keyQuotaInput}`}
+                    placeholder={
+                      quota.passwordConfigured
+                        ? t('ai_providers.sub2api_password_placeholder', {
+                            defaultValue: 'Configured; enter to replace',
+                          })
+                        : ''
+                    }
+                    autoComplete="new-password"
+                  />
+                </label>
+              </>
+            ) : (
+              <>
+                <label className={styles.keyQuotaField}>
+                  <span>{t('ai_providers.openai_quota_auth', { defaultValue: 'Authentication' })}</span>
+                  <Select
+                    value={quota.authMode}
+                    options={authOptions}
+                    onChange={(value) => onChange({ authMode: value as ProviderQuotaFormState['authMode'] })}
+                    disabled={isDisabled}
+                    ariaLabel={t('ai_providers.openai_quota_auth', { defaultValue: 'Authentication' })}
+                    className={styles.keyQuotaSelect}
+                  />
+                </label>
+                {quota.authMode === 'header' && (
+                  <label className={styles.keyQuotaField}>
+                    <span>{t('ai_providers.openai_quota_auth_header', { defaultValue: 'API key header' })}</span>
+                    <input
+                      type="text"
+                      value={quota.apiKeyHeader}
+                      onChange={(event) => onChange({ apiKeyHeader: event.target.value })}
+                      disabled={isDisabled}
+                      className={`input ${styles.keyQuotaInput}`}
+                      placeholder="X-API-Key"
+                    />
+                  </label>
+                )}
+                {quota.authMode !== 'none' && (
+                  <label className={styles.keyQuotaField}>
+                    <span>{t('ai_providers.openai_quota_api_key', { defaultValue: 'Quota API key' })}</span>
+                    <input
+                      type="password"
+                      value={quota.quotaApiKey}
+                      onChange={(event) =>
+                        onChange({ quotaApiKey: event.target.value, quotaApiKeyConfigured: false })
+                      }
+                      disabled={isDisabled}
+                      className={`input ${styles.keyQuotaInput}`}
+                      placeholder={
+                        quota.quotaApiKeyConfigured
+                          ? t('ai_providers.openai_quota_key_placeholder', {
+                              defaultValue: 'Configured; enter to replace',
+                            })
+                          : 'sk-...'
+                      }
+                      autoComplete="new-password"
+                    />
+                  </label>
+                )}
+              </>
             )}
             <label className={styles.keyQuotaField}>
               <span>{t('common.proxy_url')}</span>

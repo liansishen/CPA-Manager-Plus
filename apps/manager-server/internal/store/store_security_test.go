@@ -54,9 +54,12 @@ func TestStoreEncryptsSetupAndManagerConfigSecrets(t *testing.T) {
 		CustomQuota: ManagerCustomQuotaConfig{
 			Bindings: map[string]ManagerCustomQuotaBinding{
 				"openai:0:0": {
-					Kind:        "custom_get",
-					URL:         "https://quota.example.com/usage",
-					QuotaAPIKey: "quota-api-key",
+					Kind:         "custom_get",
+					URL:          "https://quota.example.com/usage",
+					QuotaAPIKey:  "quota-api-key",
+					Password:     "quota-password",
+					AccessToken:  "access-token",
+					RefreshToken: "refresh-token",
 				},
 			},
 		},
@@ -65,7 +68,7 @@ func TestStoreEncryptsSetupAndManagerConfigSecrets(t *testing.T) {
 		t.Fatalf("save manager config: %v", err)
 	}
 	rawManagerConfig := rawSettingValue(t, db, "manager_config_v1")
-	if strings.Contains(rawManagerConfig, "management-key") || strings.Contains(rawManagerConfig, "quota-api-key") || !strings.Contains(rawManagerConfig, "enc:v1:") {
+	if strings.Contains(rawManagerConfig, "management-key") || strings.Contains(rawManagerConfig, "quota-api-key") || strings.Contains(rawManagerConfig, "quota-password") || strings.Contains(rawManagerConfig, "access-token") || strings.Contains(rawManagerConfig, "refresh-token") || !strings.Contains(rawManagerConfig, "enc:v1:") {
 		t.Fatalf("manager config was not encrypted at rest: %s", rawManagerConfig)
 	}
 	loadedManagerCfg, ok, err := db.LoadManagerConfig(context.Background())
@@ -77,6 +80,13 @@ func TestStoreEncryptsSetupAndManagerConfigSecrets(t *testing.T) {
 	}
 	if loadedManagerCfg.CustomQuota.Bindings["openai:0:0"].QuotaAPIKey != "quota-api-key" {
 		t.Fatalf("loaded custom quota API key = %q", loadedManagerCfg.CustomQuota.Bindings["openai:0:0"].QuotaAPIKey)
+	}
+	loadedBinding := loadedManagerCfg.CustomQuota.Bindings["openai:0:0"]
+	if loadedBinding.Password != "quota-password" || loadedBinding.AccessToken != "access-token" || loadedBinding.RefreshToken != "refresh-token" {
+		t.Fatal("loaded custom quota authentication secrets did not round-trip")
+	}
+	if !loadedBinding.PasswordConfigured || !loadedBinding.AccessTokenConfigured || !loadedBinding.RefreshTokenConfigured {
+		t.Fatal("loaded custom quota authentication flags were not derived")
 	}
 }
 

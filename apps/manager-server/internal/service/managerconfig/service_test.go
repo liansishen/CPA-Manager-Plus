@@ -11,10 +11,15 @@ func TestPublicManagerConfigRedactsCustomQuotaSecrets(t *testing.T) {
 		CustomQuota: store.ManagerCustomQuotaConfig{
 			Bindings: map[string]store.ManagerCustomQuotaBinding{
 				"binding": {
-					Kind:         "custom_get",
-					URL:          "https://quota.example.com/usage",
-					QuotaAPIKey:  "quota-secret",
-					Headers:      map[string]string{"Authorization": "header-secret", "X-Client": "manager"},
+					Kind:                   "custom_get",
+					URL:                    "https://quota.example.com/usage",
+					QuotaAPIKey:            "quota-secret",
+					Username:               "user@example.test",
+					Password:               "configured-password",
+					AccessToken:            "access-token",
+					RefreshToken:           "refresh-token",
+					AccessTokenExpiresAtMS: 12345,
+					Headers:                map[string]string{"Authorization": "header-secret", "X-Client": "manager"},
 				},
 			},
 		},
@@ -30,6 +35,15 @@ func TestPublicManagerConfigRedactsCustomQuotaSecrets(t *testing.T) {
 	}
 	if binding.Headers["X-Client"] != "manager" {
 		t.Fatalf("non-sensitive header changed: %#v", binding.Headers)
+	}
+	if binding.Password != "" || binding.AccessToken != "" || binding.RefreshToken != "" || binding.AccessTokenExpiresAtMS != 0 {
+		t.Fatal("Sub2API authentication secrets were not redacted")
+	}
+	if !binding.PasswordConfigured || !binding.AccessTokenConfigured || !binding.RefreshTokenConfigured {
+		t.Fatal("configured flags were not preserved after redaction")
+	}
+	if binding.Username != "user@example.test" {
+		t.Fatal("Sub2API username was not preserved for editing")
 	}
 	if cfg.CustomQuota.Bindings["binding"].QuotaAPIKey != "quota-secret" {
 		t.Fatal("public config redaction mutated the stored config")
@@ -47,9 +61,9 @@ func TestMergeCustomQuotaBindingsPreservesRedactedSensitiveHeaders(t *testing.T)
 	}
 	submitted := map[string]store.ManagerCustomQuotaBinding{
 		"binding": {
-			Kind:        "custom_get",
-			URL:         "https://quota.example.com/usage",
-			Headers:     map[string]string{"authorization": "", "X-Client": "updated"},
+			Kind:    "custom_get",
+			URL:     "https://quota.example.com/usage",
+			Headers: map[string]string{"authorization": "", "X-Client": "updated"},
 		},
 	}
 
@@ -62,6 +76,43 @@ func TestMergeCustomQuotaBindingsPreservesRedactedSensitiveHeaders(t *testing.T)
 	}
 	if merged.QuotaAPIKey != "quota-secret" {
 		t.Fatal("quota API key was not preserved")
+	}
+}
+
+func TestMergeCustomQuotaBindingsPreservesAndClearsSub2APICredentials(t *testing.T) {
+	base := map[string]store.ManagerCustomQuotaBinding{
+		"binding": {
+			Kind:                   "sub2api",
+			URL:                    "https://sub2api.example.test",
+			Username:               "old@example.test",
+			Password:               "old-password",
+			AccessToken:            "old-access",
+			RefreshToken:           "old-refresh",
+			AccessTokenExpiresAtMS: 12345,
+		},
+	}
+
+	preserved := mergeCustomQuotaBindings(base, map[string]store.ManagerCustomQuotaBinding{
+		"binding": {Kind: "sub2api", URL: "https://sub2api.example.test"},
+	})["binding"]
+	if preserved.Username != "old@example.test" || preserved.Password != "old-password" || preserved.AccessToken != "old-access" || preserved.RefreshToken != "old-refresh" {
+		t.Fatal("existing Sub2API credentials were not preserved")
+	}
+	if !preserved.PasswordConfigured || !preserved.AccessTokenConfigured || !preserved.RefreshTokenConfigured {
+		t.Fatal("preserved Sub2API credentials did not derive configured flags")
+	}
+
+	replaced := mergeCustomQuotaBindings(base, map[string]store.ManagerCustomQuotaBinding{
+		"binding": {Kind: "sub2api", URL: "https://sub2api.example.test", Username: "new@example.test"},
+	})["binding"]
+	if replaced.Username != "new@example.test" || replaced.Password != "old-password" {
+		t.Fatal("updated Sub2API username did not preserve the password")
+	}
+	if replaced.AccessToken != "" || replaced.RefreshToken != "" || replaced.AccessTokenExpiresAtMS != 0 {
+		t.Fatal("changing the Sub2API username did not clear cached tokens")
+	}
+	if replaced.AccessTokenConfigured || replaced.RefreshTokenConfigured {
+		t.Fatal("cleared Sub2API tokens retained configured flags")
 	}
 }
 
@@ -88,17 +139,17 @@ func TestValidateCustomQuotaConfigRejectsInvalidProxyAndQuotaKey(t *testing.T) {
 		{
 			name: "proxy scheme",
 			binding: store.ManagerCustomQuotaBinding{
-				Kind:      "custom_get",
-				URL:       "https://quota.example.com/usage",
-				ProxyURL:  "ftp://proxy.example.com",
+					Kind:     "custom_get",
+					URL:      "https://quota.example.com/usage",
+					ProxyURL: "ftp://proxy.example.com",
 			},
 		},
 		{
 			name: "quota key newline",
 			binding: store.ManagerCustomQuotaBinding{
-				Kind:         "custom_get",
-				URL:          "https://quota.example.com/usage",
-				QuotaAPIKey:  "quota\r\nsecret",
+					Kind:        "custom_get",
+					URL:         "https://quota.example.com/usage",
+					QuotaAPIKey: "quota\r\nsecret",
 			},
 		},
 		{

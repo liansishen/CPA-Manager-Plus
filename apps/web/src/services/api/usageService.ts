@@ -231,6 +231,11 @@ export interface ManagerCustomQuotaBinding {
   authMode?: ManagerCustomQuotaAuthMode;
   quotaApiKey?: string;
   quotaApiKeyConfigured?: boolean;
+  username?: string;
+  password?: string;
+  passwordConfigured?: boolean;
+  accessTokenConfigured?: boolean;
+  refreshTokenConfigured?: boolean;
   apiKeyHeader?: string;
   headers?: Record<string, string>;
   proxyUrl?: string;

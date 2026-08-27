@@ -22,6 +22,11 @@ export interface ProviderQuotaFormState {
   authMode: 'bearer' | 'header' | 'none';
   quotaApiKey: string;
   quotaApiKeyConfigured?: boolean;
+  username: string;
+  password: string;
+  passwordConfigured?: boolean;
+  accessTokenConfigured?: boolean;
+  refreshTokenConfigured?: boolean;
   apiKeyHeader: string;
   proxyUrl: string;
   headers: Array<{ key: string; value: string }>;

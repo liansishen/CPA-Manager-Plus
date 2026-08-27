@@ -34,6 +34,13 @@ import type { ModelInfo } from '@/utils/models';
 import type { OpenAIFormApiKeyEntry, OpenAIFormState } from '@/components/providers';
 import type { OpenAIQuotaFormState } from '@/components/providers/types';
 import { sha256Hex } from '@/utils/apiKeyHash';
+import {
+  buildEmptyProviderQuota,
+  buildProviderQuotaBindings,
+  isProviderQuotaInvalid,
+  normalizeProviderQuotaForComparison,
+  quotaBindingToForm as providerQuotaBindingToForm,
+} from '@/utils/quota/providerQuota';
 import { buildCustomQuotaBindingKey } from '@/utils/quota/customQuota';
 import {
   MAX_CREDENTIAL_WEIGHT,
@@ -58,56 +65,14 @@ type OpenAIFormBaseline = ReturnType<typeof buildOpenAIBaseline>;
 const OPENAI_TEST_TIMEOUT_MS = 30_000;
 
 
-const buildEmptyQuota = (): OpenAIQuotaFormState => ({
-  enabled: false,
-  kind: 'custom_get',
-  url: '',
-  authMode: 'bearer',
-  quotaApiKey: '',
-  apiKeyHeader: 'Authorization',
-  proxyUrl: '',
-  headers: [],
-  mapping: {},
-  hasBinding: false,
-});
+const buildEmptyQuota = (): OpenAIQuotaFormState => buildEmptyProviderQuota();
 
 const buildOpenAIFormEntry = (): OpenAIFormApiKeyEntry => ({
   ...buildApiKeyEntry(),
   quota: buildEmptyQuota(),
 });
 
-const normalizeQuotaForComparison = (quota?: OpenAIQuotaFormState) => {
-  if (!quota) return null;
-  const url = String(quota.url ?? '').trim();
-  const quotaApiKey = String(quota.quotaApiKey ?? '').trim();
-  const hasValues =
-    Boolean(quota.hasBinding) ||
-    Boolean(quota.enabled) ||
-    Boolean(url) ||
-    Boolean(quotaApiKey) ||
-    Boolean(quota.quotaApiKeyConfigured) ||
-    Boolean(quota.proxyUrl?.trim()) ||
-    quota.headers.length > 0 ||
-    Object.keys(quota.mapping).length > 0;
-  if (!hasValues) return null;
-  return {
-    enabled: Boolean(quota.enabled),
-    kind: quota.kind,
-    url,
-    authMode: quota.authMode,
-    quotaApiKey,
-    quotaApiKeyConfigured: Boolean(quota.quotaApiKeyConfigured),
-    apiKeyHeader: quota.apiKeyHeader.trim(),
-    proxyUrl: quota.proxyUrl.trim(),
-    headers: normalizeKeyHeaders(buildHeaderObject(quota.headers)),
-    mapping: Object.fromEntries(
-      Object.entries(quota.mapping)
-        .map(([key, value]) => [key.trim(), String(value ?? '').trim()] as const)
-        .filter(([key, value]) => key && value)
-        .sort(([left], [right]) => left.localeCompare(right))
-    ),
-  };
-};
+const normalizeQuotaForComparison = normalizeProviderQuotaForComparison;
 
 
 const findQuotaBinding = (
@@ -126,67 +91,19 @@ const findQuotaBinding = (
   );
 };
 
-const quotaBindingToForm = (binding?: ManagerCustomQuotaBinding): OpenAIQuotaFormState => {
-  if (!binding) return buildEmptyQuota();
-  return {
-    enabled: binding.enabled !== false,
-    kind: binding.kind === 'sub2api' ? 'sub2api' : 'custom_get',
-    url: binding.url ?? '',
-    authMode:
-      binding.authMode === 'header' || binding.authMode === 'none' ? binding.authMode : 'bearer',
-    quotaApiKey: '',
-    quotaApiKeyConfigured: Boolean(binding.quotaApiKeyConfigured),
-    apiKeyHeader: binding.apiKeyHeader ?? 'Authorization',
-    proxyUrl: binding.proxyUrl ?? '',
-    headers: headersToEntries(binding.headers),
-    mapping: { ...(binding.mapping ?? {}) },
-    hasBinding: true,
-  };
-};
+const quotaBindingToForm = (binding?: ManagerCustomQuotaBinding): OpenAIQuotaFormState =>
+  providerQuotaBindingToForm(binding);
 
 const buildCustomQuotaBindings = (
   providerName: string,
   entries: OpenAIFormApiKeyEntry[]
-): Record<string, ManagerCustomQuotaBinding> => {
-  const bindings: Record<string, ManagerCustomQuotaBinding> = {};
-  entries.forEach((entry) => {
+): Record<string, ManagerCustomQuotaBinding> =>
+  entries.reduce<Record<string, ManagerCustomQuotaBinding>>((bindings, entry) => {
     const apiKey = String(entry.apiKey ?? '').trim();
-    const quota = entry.quota;
-    const bindingKey = buildCustomQuotaBindingKey(providerName, apiKey);
-    if (!quota || !bindingKey) return;
-    const url = quota.url.trim();
-    const hasValues =
-      Boolean(quota.hasBinding) ||
-      Boolean(quota.enabled) ||
-      Boolean(url) ||
-      Boolean(quota.quotaApiKey.trim()) ||
-      Boolean(quota.quotaApiKeyConfigured) ||
-      Boolean(quota.proxyUrl.trim()) ||
-      quota.headers.length > 0 ||
-      Object.keys(quota.mapping).length > 0;
-    if (!hasValues || !url) return;
-    const headers = buildHeaderObject(quota.headers);
-    const mapping = Object.fromEntries(
-      Object.entries(quota.mapping)
-        .map(([key, value]) => [key.trim(), String(value ?? '').trim()] as const)
-        .filter(([key, value]) => key && value)
-    );
-    bindings[bindingKey] = {
-      kind: quota.kind,
-      url,
-      authMode: quota.authMode,
-      quotaApiKey: quota.quotaApiKey.trim(),
-      quotaApiKeyConfigured: Boolean(quota.quotaApiKeyConfigured || quota.quotaApiKey.trim()),
-      apiKeyHeader: quota.apiKeyHeader.trim() || undefined,
-      headers: Object.keys(headers).length ? headers : undefined,
-      proxyUrl: quota.proxyUrl.trim() || undefined,
-      mapping: Object.keys(mapping).length ? mapping : undefined,
-      providerName: providerName.trim(),
-      apiKeyHash: sha256Hex(apiKey),
-      enabled: quota.enabled,
-    };
-  });
-  return bindings;
+    const next = buildProviderQuotaBindings('openai', providerName, apiKey, entry.quota);
+    Object.assign(bindings, next);
+    return bindings;
+  }, {});
 };
 
 const buildEmptyForm = (): OpenAIFormState => ({
@@ -834,13 +751,7 @@ export function OpenAIEditDrawer({
       );
       return;
     }
-    const hasInvalidQuota = form.apiKeyEntries.some((entry) => {
-      const quota = entry.quota;
-      if (!quota?.enabled) return false;
-      if (!quota.url.trim()) return true;
-      const requiresKey = quota.authMode !== 'none';
-      return requiresKey && !quota.quotaApiKey.trim() && !quota.quotaApiKeyConfigured;
-    });
+    const hasInvalidQuota = form.apiKeyEntries.some((entry) => isProviderQuotaInvalid(entry.quota));
     if (hasInvalidQuota) {
       showNotification(
         t('ai_providers.openai_quota_invalid', {

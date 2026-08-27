@@ -244,33 +244,46 @@ const parseSub2ApiWindows = (
   const root = readRecord(body);
   if (!root) return [];
   const data = readRecord(root.data) ?? root;
-  const windows: AccountQuotaWindow[] = [];
-  const quota = readFirstPath(data, ['quota', 'quota_info', 'quotaInfo']);
-  const quotaValue = quota ?? data;
-  const quotaWindow = toQuotaWindow(quotaValue, data, 0, {}, t, observedAtMs);
-  if (quotaWindow) {
-    windows.push({ ...quotaWindow, id: 'sub2api-quota', label: readWindowLabel(quotaValue, 'Quota') });
-  }
-
-  const rateLimits = readFirstPath(data, ['rate_limits', 'rateLimits', 'limits']);
-  toWindowItems(rateLimits).forEach((item, index) => {
-    const window = toQuotaWindow(item, data, index, {}, t, observedAtMs);
-    if (window) {
-      windows.push({
-        ...window,
-        id: `sub2api-rate-limit-${index}`,
-        label: readWindowLabel(item, `Window ${index + 1}`),
-      });
+  const candidates = [
+    data,
+    readRecord(readFirstPath(data, ['active_subscription', 'activeSubscription'])),
+    readRecord(readFirstPath(data, ['subscription'])),
+    readRecord(readFirstPath(data, ['summary'])),
+  ].filter((value): value is Record<string, unknown> => Boolean(value));
+  const readWeeklyValue = (paths: string[]) => {
+    for (const candidate of candidates) {
+      const value = readFirstPath(candidate, paths);
+      if (value !== undefined && value !== null) return value;
     }
-  });
+    return undefined;
+  };
 
-  ['daily', 'weekly', 'monthly', 'five_hour', 'fiveHour'].forEach((key) => {
-    const value = data[key];
-    if (!readRecord(value)) return;
-    const window = toQuotaWindow(value, data, windows.length, {}, t, observedAtMs);
-    if (window) windows.push({ ...window, id: `sub2api-${key}`, label: readWindowLabel(value, key) });
-  });
-  return windows;
+  const used = readWeeklyValue(['weekly_usage_usd', 'weeklyUsageUsd']);
+  const limit = readWeeklyValue([
+    'group.weekly_limit_usd',
+    'group.weeklyLimitUsd',
+    'weekly_limit_usd',
+    'weeklyLimitUsd',
+  ]);
+  const usedNumber = readNumber(used);
+  const limitNumber = readNumber(limit);
+  const remainingValue = readWeeklyValue(['weekly_remaining_usd', 'weeklyRemainingUsd']);
+  const remainingNumber = readNumber(remainingValue);
+  if (usedNumber === null && limitNumber === null && remainingNumber === null) return [];
+
+  const quotaValue = {
+    label: 'Weekly',
+    used: usedNumber ?? used,
+    limit: limitNumber ?? limit,
+    remaining:
+      remainingNumber ??
+      (usedNumber !== null && limitNumber !== null ? Math.max(0, limitNumber - usedNumber) : undefined),
+    usedPercent: readWeeklyValue(['weekly_usage_percent', 'weeklyUsagePercent']),
+    resetAt: readWeeklyValue(['weekly_reset_at', 'weeklyResetAt', 'weekly_window_end', 'weeklyWindowEnd']),
+    unit: 'USD',
+  };
+  const window = toQuotaWindow(quotaValue, data, 0, {}, t, observedAtMs);
+  return window ? [{ ...window, id: 'sub2api-weekly', label: 'Weekly' }] : [];
 };
 
 export const buildCustomQuotaAccountWindows = (
