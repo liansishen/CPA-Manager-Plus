@@ -75,6 +75,31 @@ describe('buildCustomQuotaAccountWindows', () => {
     });
   });
 
+  it('parses a Sub2API subscriptions array envelope', () => {
+    const windows = buildCustomQuotaAccountWindows(
+      {
+        data: [
+          {
+            status: 'active',
+            weekly_usage_usd: 12.5,
+            group: { weekly_limit_usd: 50 },
+          },
+        ],
+      },
+      { kind: 'sub2api', url: 'https://sub2api.example.com' },
+      t,
+      Date.parse('2026-08-27T12:00:00.000Z')
+    );
+
+    expect(windows).toHaveLength(1);
+    expect(windows[0]).toMatchObject({
+      id: 'sub2api-weekly',
+      label: 'Weekly',
+      remainingPercent: 75,
+      usageLabel: '12.5 / 50 USD',
+    });
+  });
+
   it('rejects responses without recognized quota windows', () => {
     expect(() =>
       buildCustomQuotaAccountWindows(

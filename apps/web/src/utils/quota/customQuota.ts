@@ -241,9 +241,17 @@ const parseSub2ApiWindows = (
 ): AccountQuotaWindow[] => {
   const root = readRecord(body);
   if (!root) return [];
-  const data = readRecord(root.data) ?? root;
+  const dataItems = Array.isArray(root.data)
+    ? root.data.map(readRecord).filter((value): value is Record<string, unknown> => Boolean(value))
+    : [];
+  const data =
+    readRecord(root.data) ??
+    dataItems.find((item) => readString(item.status).toLowerCase() === 'active') ??
+    dataItems[0] ??
+    root;
   const candidates = [
     data,
+    ...dataItems,
     readRecord(readFirstPath(data, ['active_subscription', 'activeSubscription'])),
     readRecord(readFirstPath(data, ['subscription'])),
     readRecord(readFirstPath(data, ['summary'])),
