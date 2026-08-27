@@ -26,11 +26,6 @@ export type MonitoringAccountQuotaProvider =
   | 'openai'
   | 'xai';
 
-type MonitoringCustomQuotaTargetFields = {
-  sourceKey: string;
-  customQuotaBindingKey: string;
-  customQuotaBinding: ManagerCustomQuotaBinding;
-};
 
 export type MonitoringAccountQuotaTarget = {
   key: string;
