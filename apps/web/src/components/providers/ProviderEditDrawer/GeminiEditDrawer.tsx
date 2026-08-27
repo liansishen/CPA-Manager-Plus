@@ -356,6 +356,7 @@ export function GeminiEditDrawer({
         'error'
       );
       return;
+    }
     if (isProviderQuotaInvalid(form.quota)) {
       showNotification(
         t('ai_providers.openai_quota_invalid', {
@@ -376,7 +377,6 @@ export function GeminiEditDrawer({
         'error'
       );
       return;
-    }
     }
     setSaving(true);
     setError('');

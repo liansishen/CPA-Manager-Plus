@@ -533,6 +533,7 @@ export function CodexEditDrawer({
         'error'
       );
       return;
+    }
     if (isProviderQuotaInvalid(form.quota)) {
       showNotification(
         t('ai_providers.openai_quota_invalid', {
@@ -553,7 +554,6 @@ export function CodexEditDrawer({
         'error'
       );
       return;
-    }
     }
     setSaving(true);
     setError('');
