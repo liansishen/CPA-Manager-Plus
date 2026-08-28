@@ -621,6 +621,7 @@ func validateCustomQuotaHeaderName(name string) error {
 		return errors.New("custom quota header name is invalid")
 	}
 	return nil
+}
 func PublicConfig(cfg store.ManagerConfig) PublicManagerConfig {
 	return PublicManagerConfig{
 		CPAConnection: PublicManagerCPAConnectionConfig{
