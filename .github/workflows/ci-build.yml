@@ -1,0 +1,76 @@
+name: CI Build
+
+on:
+  push:
+    branches:
+      - '**'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to build; leave empty to use the selected workflow ref'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build downloadable artifacts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.24.x'
+          cache-dependency-path: apps/manager-server/go.sum
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build management web bundle
+        run: npm run build
+        env:
+          VERSION: ci-${{ github.sha }}
+
+      - name: Check demo isolation
+        run: npm run check:demo-isolation
+
+      - name: Build native packages
+        run: bin/release/package-native.sh
+        env:
+          VERSION: ci-${{ github.sha }}
+
+      - name: Prepare CI artifact
+        run: |
+          set -euo pipefail
+          rm -rf dist/ci
+          mkdir -p dist/ci/native
+          cp apps/web/dist/index.html dist/ci/management.html
+          cp dist/native/* dist/ci/native/
+          find dist/ci -maxdepth 2 -type f -print | sort
+
+      - name: Upload CI artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cpa-manager-plus-ci-${{ github.sha }}
+          path: dist/ci
+          if-no-files-found: error
+          retention-days: 7

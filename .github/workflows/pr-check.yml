@@ -10,10 +10,6 @@ on:
       - edited
       - reopened
       - synchronize
-  push:
-    branches:
-      - main
-      - dev
 
 permissions:
   contents: read
