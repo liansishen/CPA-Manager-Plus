@@ -35,6 +35,7 @@ type PublicManagerConfig struct {
 	CodexInspection      store.ManagerCodexInspectionConfig      `json:"codexInspection"`
 	ExternalUsageService store.ManagerExternalUsageServiceConfig `json:"externalUsageService"`
 	UpdatedAtMS          int64                                   `json:"updatedAtMs,omitempty"`
+	CustomQuota          store.ManagerCustomQuotaConfig          `json:"customQuota,omitempty"`
 }
 
 type PublicManagerCPAConnectionConfig struct {
@@ -48,9 +49,10 @@ type Service struct {
 	collector *collectorservice.Service
 }
 
-func publicManagerConfig(cfg store.ManagerConfig) store.ManagerConfig {
+func publicManagerConfig(cfg store.ManagerConfig) PublicManagerConfig {
+	public := PublicConfig(cfg)
 	if cfg.CustomQuota.Bindings == nil {
-		return cfg
+		return public
 	}
 	publicBindings := make(map[string]store.ManagerCustomQuotaBinding, len(cfg.CustomQuota.Bindings))
 	for key, binding := range cfg.CustomQuota.Bindings {
@@ -66,8 +68,9 @@ func publicManagerConfig(cfg store.ManagerConfig) store.ManagerConfig {
 		binding.Headers = redactCustomQuotaHeaders(binding.Headers)
 		publicBindings[key] = binding
 	}
-	cfg.CustomQuota.Bindings = publicBindings
-	return cfg
+	public.CustomQuota = cfg.CustomQuota
+	public.CustomQuota.Bindings = publicBindings
+	return public
 }
 
 func ValidateCustomQuotaConfig(cfg store.ManagerCustomQuotaConfig) error {
