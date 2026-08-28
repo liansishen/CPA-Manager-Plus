@@ -41,7 +41,6 @@ import {
   type MonitoringAccountOverviewMode,
 } from '@/features/monitoring/accountOverviewState';
 import {
-  buildMonitoringAccountQuotaTargetsByRowId,
   buildMonitoringCustomQuotaTargetsByRowId,
   type MonitoringAccountQuotaTarget,
 } from '@/features/monitoring/accountOverviewQuotaTargets';
@@ -202,10 +201,17 @@ export function MonitoringCenterPage() {
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
   const apiBase = useAuthStore((state) => state.apiBase);
   const managementKey = useAuthStore((state) => state.managementKey);
-  const quotaRequestScope = useMemo(() => ({ apiBase, managementKey }), [apiBase, managementKey]);
   const showNotification = useNotificationStore((state) => state.showNotification);
   const showConfirmation = useNotificationStore((state) => state.showConfirmation);
   const requestMonitoringAvailability = useRequestMonitoringAvailability();
+  const quotaRequestScope = useMemo(
+    () => ({
+      apiBase,
+      managementKey,
+      serviceBase: requestMonitoringAvailability.serviceBase,
+    }),
+    [apiBase, managementKey, requestMonitoringAvailability.serviceBase]
+  );
   const connectionFingerprint = useMemo(
     () => createCodexInspectionConnectionFingerprint(apiBase, managementKey),
     [apiBase, managementKey]
@@ -1372,6 +1378,14 @@ export function MonitoringCenterPage() {
             setXaiQuota,
             getCredentialScopedQuotaState(sharedQuotaStores.xaiQuota, target.file)
           );
+        case 'gemini':
+        case 'interactions':
+        case 'openai':
+        case 'vertex':
+          return {
+            status: 'success',
+            entry: await requestAccountQuota(target, t, quotaRequestScope),
+          };
       }
     },
     [

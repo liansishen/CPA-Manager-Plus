@@ -39,6 +39,11 @@ import type {
 } from '@/features/monitoring/accountOverviewQuotaTargets';
 import { formatStatusWindowLabel } from '@/features/monitoring/model/statusWindow';
 import {
+  fetchAntigravityQuota,
+  fetchClaudeQuota,
+  fetchCodexQuota,
+  fetchKimiQuota,
+  fetchXaiQuota,
   buildCodexQuotaWindowInfos,
   filterFreshCodexQuotaWindows,
   formatKimiResetHint,
@@ -1400,6 +1405,11 @@ const applyProviderQuotaStateMetadata = (
     : {}),
 });
 
+const stampAccountQuotaFetchTime = <T extends AccountQuotaEntry>(entry: T): T => ({
+  ...entry,
+  fetchedAtMs: Date.now(),
+});
+
 /**
  * Converts one provider-owned quota state into Monitoring's presentation
  * entry. Provider state remains the source of truth; this function does not
@@ -1546,6 +1556,8 @@ export const buildCachedAccountQuotaEntry = (
         getCredentialScopedQuotaState(stores.xaiQuota, target.file),
         t
       );
+    default:
+      return null;
   }
 };
 
@@ -1773,7 +1785,7 @@ export const requestAccountQuota = async (
     case 'codex':
     default: {
       const quota = await fetchCodexQuota(target.file, t);
-      const planLabel = getCodexPlanLabel(quota.planType ?? target.planType, t);
+      const planLabel = getPlanPresentation({ provider: target.provider, planType: quota.planType ?? target.planType, t })?.shortLabel;
       return stampAccountQuotaFetchTime({
         ...buildBaseAccountQuotaEntry(
           {
