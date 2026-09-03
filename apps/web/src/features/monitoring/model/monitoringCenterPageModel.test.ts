@@ -2133,4 +2133,52 @@ describe('requestCustomAccountQuota', () => {
     ).rejects.toThrow('monitoring.custom_quota_config_missing');
     expect(usageServiceApi.queryCustomQuota).not.toHaveBeenCalled();
   });
+
+  it('does not overlay native credential errors onto a custom Sub2API quota entry', () => {
+    const file = {
+      name: 'codex:0.custom-quota',
+      type: 'codex',
+      provider: 'codex',
+    };
+    const target = createTarget({
+      key: 'custom::codex:0::openai:binding',
+      provider: 'codex',
+      authIndex: '',
+      authLabel: 'Gateway',
+      fileName: 'Gateway',
+      file,
+      customQuotaBindingKey: 'openai:binding',
+      customQuotaBinding: { kind: 'sub2api', url: 'https://sub2api.example.com' },
+    });
+    const stores = emptyQuotaStores();
+    stores.codexQuota[getQuotaCredentialStoreKey(file)] = {
+      ...codexState(file, 90),
+      status: 'error',
+      error: 'Auth file missing auth_index',
+      windows: [],
+    };
+    const previous: AccountQuotaEntry = {
+      key: target.key,
+      provider: 'codex',
+      providerLabel: 'Codex Quota',
+      authLabel: 'Gateway',
+      fileName: 'Gateway',
+      planType: null,
+      windows: [{ id: 'sub2api-weekly', label: 'Weekly', remainingPercent: 80, resetLabel: '-', usageLabel: '20 / 100 USD' }],
+    };
+
+    const cached = buildCachedAccountQuotaEntry(target, stores, t);
+    const merged = mergeSharedAccountQuotaState(
+      { status: 'success', targetKey: target.key, entries: [previous], error: '' },
+      [target],
+      cached ? [cached] : []
+    );
+
+    expect(cached).toBeNull();
+    expect(merged).toMatchObject({
+      status: 'success',
+      error: '',
+      entries: [{ key: target.key, windows: [{ id: 'sub2api-weekly', remainingPercent: 80 }] }],
+    });
+  });
 });

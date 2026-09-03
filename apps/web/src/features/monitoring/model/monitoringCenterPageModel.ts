@@ -33,9 +33,10 @@ import type {
 import { formatPercent } from '@/features/monitoring/components/accountOverviewPresentation';
 import { getPlanPresentation, resolveAntigravityPlanType } from '@/utils/plans';
 import type { SummaryCardProps } from '@/features/monitoring/components/MonitoringShared';
-import type {
-  MonitoringAccountQuotaProvider,
-  MonitoringAccountQuotaTarget,
+import {
+  isCustomQuotaTarget,
+  type MonitoringAccountQuotaProvider,
+  type MonitoringAccountQuotaTarget,
 } from '@/features/monitoring/accountOverviewQuotaTargets';
 import { formatStatusWindowLabel } from '@/features/monitoring/model/statusWindow';
 import {
@@ -1099,6 +1100,7 @@ export const mergeSharedAccountQuotaState = (
   const entries = targets
     .map((target) => {
       const previousEntry = previousEntriesByKey.get(target.key);
+      if (isCustomQuotaTarget(target)) return previousEntry;
       const sharedEntry = sharedEntriesByKey.get(target.key);
       if (!sharedEntry) return previousEntry;
       if (!sharedEntry.error || !previousEntry) return sharedEntry;
@@ -1514,6 +1516,7 @@ export const buildCachedAccountQuotaEntry = (
   stores: MonitoringQuotaStores,
   t: TFunction
 ): AccountQuotaEntry | null => {
+  if (isCustomQuotaTarget(target)) return null;
   switch (target.provider) {
     case 'antigravity':
       return buildAccountQuotaEntryFromProviderState(
@@ -1614,7 +1617,9 @@ export const buildObservedCodexAccountQuotaEntry = (
   t: TFunction,
   nowMs = Date.now()
 ): AccountQuotaEntry | null => {
-  if (target.provider !== 'codex' || !hasUsageHeaderQuotaSignal(snapshot)) return null;
+  if (isCustomQuotaTarget(target) || target.provider !== 'codex' || !hasUsageHeaderQuotaSignal(snapshot)) {
+    return null;
+  }
   const planType = target.planType ?? getHeaderSnapshotPlanType(snapshot) ?? null;
   const observedQuota = buildObservedCodexQuotaFromHeaderSnapshot(snapshot);
   const observedScope =

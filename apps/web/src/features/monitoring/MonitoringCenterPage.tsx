@@ -42,6 +42,7 @@ import {
 } from '@/features/monitoring/accountOverviewState';
 import {
   buildMonitoringCustomQuotaTargetsByRowId,
+  isCustomQuotaTarget,
   type MonitoringAccountQuotaTarget,
 } from '@/features/monitoring/accountOverviewQuotaTargets';
 import {
@@ -1338,7 +1339,7 @@ export function MonitoringCenterPage() {
             };
       };
 
-      if (target.customQuotaBindingKey || target.customQuotaBinding) {
+      if (isCustomQuotaTarget(target)) {
         const entry = await requestCustomAccountQuota(target, t, {
           serviceBase: requestMonitoringAvailability.serviceBase,
           managementKey,
