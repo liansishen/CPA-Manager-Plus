@@ -12,7 +12,7 @@ import type {
   XaiBillingSummary,
   XaiQuotaState,
 } from '@/types';
-import type { UsageHeaderSnapshot } from '@/services/api/usageService';
+import { usageServiceApi, type UsageHeaderSnapshot } from '@/services/api/usageService';
 import type {
   MonitoringAccountRow,
   MonitoringApiKeyRow,
@@ -40,6 +40,7 @@ import type {
 import { formatStatusWindowLabel } from '@/features/monitoring/model/statusWindow';
 import {
   buildCodexQuotaWindowInfos,
+  buildCustomQuotaAccountWindows,
   filterFreshCodexQuotaWindows,
   formatKimiResetHint,
   formatQuotaResetTime,
@@ -1558,6 +1559,54 @@ export const buildAccountQuotaErrorEntry = (
   windows: [],
   error,
 });
+
+export type AccountQuotaRequestScope = {
+  serviceBase: string;
+  managementKey?: string;
+};
+
+const stampAccountQuotaFetchTime = <T extends AccountQuotaEntry>(entry: T): T => ({
+  ...entry,
+  fetchedAtMs: Date.now(),
+});
+
+export const requestCustomAccountQuota = async (
+  target: MonitoringAccountQuotaTarget,
+  t: TFunction,
+  requestScope?: AccountQuotaRequestScope
+): Promise<AccountQuotaEntry> => {
+  const bindingKey = target.customQuotaBindingKey;
+  const binding = target.customQuotaBinding;
+  if (!bindingKey || !binding || !requestScope?.serviceBase) {
+    throw new Error(
+      t('monitoring.custom_quota_config_missing', {
+        defaultValue: 'Custom quota lookup is not configured for this account.',
+      })
+    );
+  }
+  const response = await usageServiceApi.queryCustomQuota(
+    requestScope.serviceBase,
+    bindingKey,
+    requestScope.managementKey
+  );
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(
+      t('monitoring.custom_quota_http_error', {
+        status: response.status,
+        defaultValue: `Custom quota endpoint returned HTTP ${response.status}.`,
+      })
+    );
+  }
+  return stampAccountQuotaFetchTime({
+    ...buildBaseAccountQuotaEntry(target, t),
+    windows: buildCustomQuotaAccountWindows(
+      response.body,
+      binding,
+      t,
+      response.fetchedAtMs || Date.now()
+    ),
+  });
+};
 
 export const buildObservedCodexAccountQuotaEntry = (
   target: MonitoringAccountQuotaTarget,

@@ -3048,6 +3048,8 @@
     "account_quota_title": "账号额度",
     "account_quota_loading": "正在加载额度...",
     "account_quota_load_failed": "额度获取失败：{{message}}",
+    "custom_quota_config_missing": "该账号未配置自定义额度查询。",
+    "custom_quota_http_error": "自定义额度接口返回 HTTP {{status}}。",
     "account_quota_empty": "当前账号没有可查询的额度。",
     "account_quota_idle": "点击刷新额度",
     "account_quota_refresh_button": "刷新额度",

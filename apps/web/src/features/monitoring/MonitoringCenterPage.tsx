@@ -75,7 +75,7 @@ import {
   RealtimeEventsPanel,
   RealtimeEventsPanelActions,
 } from '@/features/monitoring/components/RealtimeEventsPanel';
-import { type AccountQuotaState } from '@/features/monitoring/components/accountOverviewPresentation';
+import { type AccountQuotaEntry, type AccountQuotaState } from '@/features/monitoring/components/accountOverviewPresentation';
 import {
   ANTIGRAVITY_CONFIG,
   CLAUDE_CONFIG,
@@ -99,6 +99,7 @@ import {
   buildAccountQuotaRefreshFailureEntry,
   buildCachedAccountQuotaEntry,
   buildObservedCodexAccountQuotaEntry,
+  requestCustomAccountQuota,
   buildChannelOptionsFromValues,
   buildMonitoringInitialStateFromQuery,
   buildModelOptionsFromValues,
@@ -172,7 +173,8 @@ const CREDENTIAL_MUTATION_COVERAGE_RETRY_DELAYS_MS = [0, 1_000, 2_000, 4_000, 8_
 
 type MonitoringQuotaRefreshResult = {
   status: 'success' | 'error';
-  state: MonitoringProviderQuotaState;
+  state?: MonitoringProviderQuotaState;
+  entry?: AccountQuotaEntry;
   error?: string;
 };
 
@@ -1336,6 +1338,15 @@ export function MonitoringCenterPage() {
             };
       };
 
+      if (target.customQuotaBindingKey || target.customQuotaBinding) {
+        const entry = await requestCustomAccountQuota(target, t, {
+          serviceBase: requestMonitoringAvailability.serviceBase,
+          managementKey,
+        });
+        if (!isCurrent()) return null;
+        return { status: 'success', entry };
+      }
+
       switch (target.provider) {
         case 'antigravity':
           return run(
@@ -1367,12 +1378,23 @@ export function MonitoringCenterPage() {
             setXaiQuota,
             getCredentialScopedQuotaState(sharedQuotaStores.xaiQuota, target.file)
           );
+        case 'gemini':
+        case 'interactions':
+        case 'openai':
+        case 'vertex':
+          throw new Error(
+            t('monitoring.custom_quota_config_missing', {
+              defaultValue: 'Custom quota lookup is not configured for this account.',
+            })
+          );
         default:
           return null;
       }
     },
     [
+      managementKey,
       quotaRequestScope,
+      requestMonitoringAvailability.serviceBase,
       sharedQuotaStores,
       setAntigravityQuota,
       setClaudeQuota,
@@ -1497,6 +1519,7 @@ export function MonitoringCenterPage() {
                 buildAccountQuotaErrorEntry(fallback, t('common.unknown_error'), t)
               );
             }
+            if (refreshResult.entry) return refreshResult.entry;
             const providerEntry = buildAccountQuotaEntryFromProviderState(
               fallback,
               refreshResult.state,

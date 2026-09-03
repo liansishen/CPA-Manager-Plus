@@ -3050,6 +3050,8 @@
     "account_quota_title": "Account Quota",
     "account_quota_loading": "Loading quota...",
     "account_quota_load_failed": "Failed to load quota: {{message}}",
+    "custom_quota_config_missing": "Custom quota lookup is not configured for this account.",
+    "custom_quota_http_error": "Custom quota endpoint returned HTTP {{status}}.",
     "account_quota_empty": "No queryable quota is available for this account.",
     "account_quota_idle": "Click refresh quota",
     "account_quota_refresh_button": "Refresh Quota",

@@ -43,9 +43,11 @@ import {
   mergeObservedAccountQuotaEntry,
   mergeObservedAccountQuotaState,
   mergeSharedAccountQuotaState,
+  requestCustomAccountQuota,
   updateMonitoringAccountQuotaStateByRowId,
   type MonitoringQuotaStores,
 } from './monitoringCenterPageModel';
+import { usageServiceApi } from '@/services/api/usageService';
 import { getDefaultMonitoringCenterUiState } from '@/features/monitoring/monitoringCenterUiState';
 
 vi.mock('@/utils/quota', async (importOriginal) => {
@@ -57,6 +59,17 @@ vi.mock('@/utils/quota', async (importOriginal) => {
     fetchCodexQuota: vi.fn(),
     fetchKimiQuota: vi.fn(),
     fetchXaiQuota: vi.fn(),
+  };
+});
+
+vi.mock('@/services/api/usageService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/api/usageService')>();
+  return {
+    ...actual,
+    usageServiceApi: {
+      ...actual.usageServiceApi,
+      queryCustomQuota: vi.fn(),
+    },
   };
 });
 
@@ -2057,5 +2070,67 @@ describe('monitoringCenterPageModel account quota', () => {
     );
     expect(metaLabels.join(' ')).not.toContain('protocol_changed');
     expect(metaLabels.join(' ')).not.toContain('HTTP 200');
+  });
+});
+
+describe('requestCustomAccountQuota', () => {
+  beforeEach(() => {
+    vi.mocked(usageServiceApi.queryCustomQuota).mockReset();
+  });
+
+  it('queries Sub2API custom quota without requiring auth_index', async () => {
+    vi.mocked(usageServiceApi.queryCustomQuota).mockResolvedValue({
+      bindingKey: 'openai:binding',
+      status: 200,
+      fetchedAtMs: Date.parse('2026-08-27T12:00:00.000Z'),
+      body: {
+        data: {
+          weekly_usage_usd: 20,
+          group: { weekly_limit_usd: 100 },
+        },
+      },
+    });
+
+    const entry = await requestCustomAccountQuota(
+      createTarget({
+        key: 'custom::openai:0:0::openai:binding',
+        provider: 'openai',
+        authIndex: '',
+        authLabel: 'Gateway',
+        fileName: 'Gateway',
+        file: { name: 'openai:0:0.custom-quota', type: 'openai' },
+        customQuotaBindingKey: 'openai:binding',
+        customQuotaBinding: { kind: 'sub2api', url: 'https://sub2api.example.com' },
+      }),
+      t,
+      { serviceBase: 'http://manager.local', managementKey: 'key' }
+    );
+
+    expect(usageServiceApi.queryCustomQuota).toHaveBeenCalledWith(
+      'http://manager.local',
+      'openai:binding',
+      'key'
+    );
+    expect(fetchCodexQuota).not.toHaveBeenCalled();
+    expect(entry).toMatchObject({
+      provider: 'openai',
+      windows: [{ id: 'sub2api-weekly', label: 'Weekly' }],
+    });
+    expect(entry.windows[0]?.remainingPercent).toBe(80);
+  });
+
+  it('fails closed when custom quota lookup is not configured', async () => {
+    await expect(
+      requestCustomAccountQuota(
+        createTarget({
+          provider: 'openai',
+          authIndex: '',
+          file: { name: 'openai:0:0.custom-quota', type: 'openai' },
+        }),
+        t,
+        { serviceBase: 'http://manager.local' }
+      )
+    ).rejects.toThrow('monitoring.custom_quota_config_missing');
+    expect(usageServiceApi.queryCustomQuota).not.toHaveBeenCalled();
   });
 });
