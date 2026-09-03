@@ -41,7 +41,6 @@ import {
   type MonitoringAccountOverviewMode,
 } from '@/features/monitoring/accountOverviewState';
 import {
-  buildMonitoringAccountQuotaTargetsByRowId,
   buildMonitoringCustomQuotaTargetsByRowId,
   type MonitoringAccountQuotaTarget,
 } from '@/features/monitoring/accountOverviewQuotaTargets';
@@ -1368,6 +1367,8 @@ export function MonitoringCenterPage() {
             setXaiQuota,
             getCredentialScopedQuotaState(sharedQuotaStores.xaiQuota, target.file)
           );
+        default:
+          return null;
       }
     },
     [

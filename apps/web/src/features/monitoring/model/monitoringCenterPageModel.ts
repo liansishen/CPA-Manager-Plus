@@ -1544,6 +1544,8 @@ export const buildCachedAccountQuotaEntry = (
         getCredentialScopedQuotaState(stores.xaiQuota, target.file),
         t
       );
+    default:
+      return null;
   }
 };
 

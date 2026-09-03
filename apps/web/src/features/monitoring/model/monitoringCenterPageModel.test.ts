@@ -139,7 +139,7 @@ const buildEntryFromMockedProviderFetch = async (
   target: MonitoringAccountQuotaTarget,
   translate: TFunction
 ): Promise<AccountQuotaEntry> => {
-  let entry: AccountQuotaEntry | null;
+  let entry: AccountQuotaEntry | null = null;
   switch (target.provider) {
     case 'antigravity': {
       const data = await fetchAntigravityQuota(target.file, translate);
