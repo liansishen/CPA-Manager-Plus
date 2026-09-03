@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -13,11 +14,12 @@ import (
 )
 
 const (
-	quotaBoundaryJitterMS         = int64(60 * 1000)
-	quotaProvisionalStartJitterMS = int64(60 * 1000)
-	quotaResetNearZeroPercent     = 1.0
-	quotaResetMinimumPriorPercent = 5.0
-	quotaResetLargeDropPercent    = 20.0
+	quotaBoundaryJitterMS             = int64(60 * 1000)
+	quotaProvisionalStartJitterMS     = int64(60 * 1000)
+	quotaPreviousCycleOverlapJitterMS = int64(60 * 1000)
+	quotaResetNearZeroPercent         = 1.0
+	quotaResetMinimumPriorPercent     = 5.0
+	quotaResetLargeDropPercent        = 20.0
 )
 
 type logicalWindowRow struct {
@@ -1033,20 +1035,28 @@ func reconcileCycle(
 		}
 		return active.ID, 0, false, nil
 	}
-	if activeErr == nil && isReliableLifecycleBoundary(*snapshot) && active.ScheduledEndMS != nil &&
-		*snapshot.CycleStartMS >= *active.ScheduledEndMS {
-		actualEndMS := *active.ScheduledEndMS
-		if actualEndMS < active.ActualStartMS {
-			actualEndMS = active.ActualStartMS
+	if activeErr == nil && isReliableLifecycleBoundary(*snapshot) && active.ScheduledEndMS != nil {
+		strictScheduledRollover := *snapshot.CycleStartMS >= *active.ScheduledEndMS
+		nearScheduledRollover := cycleBoundaryIsNearScheduledRollover(active, *snapshot)
+		if strictScheduledRollover || nearScheduledRollover {
+			actualEndMS := *active.ScheduledEndMS
+			if actualEndMS < active.ActualStartMS {
+				actualEndMS = active.ActualStartMS
+			}
+			if _, err := tx.ExecContext(ctx, `update account_quota_cycles set
+				state = 'closed', actual_end_ms = ?, end_reason = 'scheduled',
+				last_observation_id = ?, updated_at_ms = ? where id = ?`,
+				actualEndMS, observationID, snapshot.CreatedAtMS, active.ID); err != nil {
+				return 0, 0, false, err
+			}
+			var id int64
+			if nearScheduledRollover {
+				id, err = restoreOrInsertCycleAt(ctx, tx, activationID, observationID, &actualEndMS, snapshot)
+			} else {
+				id, err = restoreOrInsertCycle(ctx, tx, activationID, observationID, snapshot)
+			}
+			return id, active.ID, false, err
 		}
-		if _, err := tx.ExecContext(ctx, `update account_quota_cycles set
-			state = 'closed', actual_end_ms = ?, end_reason = 'scheduled',
-			last_observation_id = ?, updated_at_ms = ? where id = ?`,
-			actualEndMS, observationID, snapshot.CreatedAtMS, active.ID); err != nil {
-			return 0, 0, false, err
-		}
-		id, err := restoreOrInsertCycle(ctx, tx, activationID, observationID, snapshot)
-		return id, active.ID, false, err
 	}
 	if isProvisionalZeroAPIBoundary(*snapshot) {
 		// A zero-use Codex API response whose calculated start follows the query
@@ -1061,8 +1071,26 @@ func reconcileCycle(
 		id, restoreErr := restoreOrInsertCycle(ctx, tx, activationID, observationID, snapshot)
 		return id, 0, false, restoreErr
 	}
+	// Canonicalization below replaces stale timing geometry with the active
+	// boundary, so the incoming evidence authority must be captured first:
+	// geometry correction must not promote estimated or unknown evidence into
+	// confirmed lifecycle authority.
+	incomingBoundaryConfirmed := isConfirmedLifecycleBoundary(*snapshot)
+	temporallyInvalidBoundary := cycleBoundaryIsTemporallyInvalidAgainstActive(active, *snapshot)
+	if temporallyInvalidBoundary {
+		// The incoming boundary is already expired while the active cycle's
+		// scheduled end still covers the observation time. Sanitize the
+		// evidence to the current boundary before any lifecycle transition
+		// consumes it; the counter and observation time stay untouched.
+		applyActiveCycleBoundary(snapshot, active)
+	}
 	cycleMatches := cycleMatchesSnapshot(active, *snapshot)
-	if isConfirmedLifecycleBoundary(*snapshot) {
+	// Counter-reset reconciliation splits lifecycle state, so it needs a
+	// canonical boundary that is still current at the observation time to
+	// carry the transition. An already expired boundary keeps its usage-drop
+	// evidence but cannot drive the split on its own.
+	counterResetBoundaryCurrent := cycleBoundaryCoversObservation(*snapshot)
+	if incomingBoundaryConfirmed && counterResetBoundaryCurrent {
 		counterReset, err := quotaCounterResetDetected(ctx, tx, active, *snapshot)
 		if err != nil {
 			return 0, 0, false, err
@@ -1079,15 +1107,17 @@ func reconcileCycle(
 			return id, active.ID, true, err
 		}
 	}
+	refreshExpiredBoundary := cycleBoundaryShouldRefreshExpiredCurrent(active, *snapshot)
+	actualStartMS := correctedActiveCycleActualStart(active, *snapshot)
 	if cycleMatches {
-		if cycleBoundaryShouldUpgrade(active, *snapshot) {
+		if cycleBoundaryCanReplaceActive(active, *snapshot) || refreshExpiredBoundary {
 			if _, err := tx.ExecContext(ctx, `update account_quota_cycles set
 				scheduled_start_ms = ?, scheduled_end_ms = ?, actual_start_ms = ?,
 				duration_seconds = ?, boundary_accuracy = ?, last_observation_id = ?, updated_at_ms = ?
 				where id = ?`,
 				snapshot.CycleStartMS,
 				snapshot.CycleEndMS,
-				*snapshot.CycleStartMS,
+				actualStartMS,
 				snapshot.DurationSeconds,
 				snapshot.BoundaryAccuracy,
 				observationID,
@@ -1106,14 +1136,15 @@ func reconcileCycle(
 		}
 		return active.ID, 0, false, nil
 	}
-	if isConfirmedLifecycleBoundary(*snapshot) && cycleBoundaryShouldUpgrade(active, *snapshot) {
+	if isConfirmedLifecycleBoundary(*snapshot) &&
+		(cycleBoundaryCanReplaceActive(active, *snapshot) || refreshExpiredBoundary) {
 		if _, err := tx.ExecContext(ctx, `update account_quota_cycles set
 			scheduled_start_ms = ?, scheduled_end_ms = ?, actual_start_ms = ?,
 			duration_seconds = ?, boundary_accuracy = ?, last_observation_id = ?, updated_at_ms = ?
 			where id = ?`,
 			snapshot.CycleStartMS,
 			snapshot.CycleEndMS,
-			*snapshot.CycleStartMS,
+			actualStartMS,
 			snapshot.DurationSeconds,
 			snapshot.BoundaryAccuracy,
 			observationID,
@@ -1174,6 +1205,142 @@ func confirmedResetTransitionMS(cycle model.AccountQuotaCycle, snapshot model.Ac
 
 func cycleBoundaryShouldUpgrade(cycle model.AccountQuotaCycle, snapshot model.AccountQuotaSnapshot) bool {
 	return boundaryAccuracyValue(snapshot.BoundaryAccuracy) > boundaryAccuracyValue(cycle.BoundaryAccuracy)
+}
+
+// cycleBoundaryShouldRefreshExpiredCurrent reports whether a confirmed fresh
+// boundary that still covers the observation time must replace an active cycle
+// whose scheduled end has already passed. This is a temporal-validity
+// correction rather than a precision upgrade: once the stored scheduled end is
+// in the past it can no longer represent the current window, even when its
+// accuracy rank is higher than the fresh evidence. The cycle keeps its
+// identity, so no rollover, reset, or additional cycle is created.
+func cycleBoundaryShouldRefreshExpiredCurrent(
+	cycle model.AccountQuotaCycle,
+	snapshot model.AccountQuotaSnapshot,
+) bool {
+	if !isConfirmedLifecycleBoundary(snapshot) ||
+		cycle.ScheduledEndMS == nil ||
+		cycle.DurationSeconds == nil ||
+		snapshot.CycleEndMS == nil ||
+		snapshot.DurationSeconds == nil {
+		return false
+	}
+	if *cycle.DurationSeconds != *snapshot.DurationSeconds {
+		return false
+	}
+	return snapshot.ObservedAtMS >= *cycle.ScheduledEndMS &&
+		*snapshot.CycleEndMS > snapshot.ObservedAtMS
+}
+
+// cycleBoundaryIsNearScheduledRollover reports whether a reliable incoming
+// boundary is just before the active scheduled end because of provider timing
+// jitter. The observation must already be at the old end, while the incoming
+// boundary must still cover that observation, so material overlaps continue to
+// use the expired-boundary refresh path.
+func cycleBoundaryIsNearScheduledRollover(
+	cycle model.AccountQuotaCycle,
+	snapshot model.AccountQuotaSnapshot,
+) bool {
+	if isProvisionalZeroAPIBoundary(snapshot) {
+		return false
+	}
+	if cycle.ScheduledEndMS == nil ||
+		cycle.DurationSeconds == nil ||
+		snapshot.CycleStartMS == nil ||
+		snapshot.CycleEndMS == nil ||
+		snapshot.DurationSeconds == nil {
+		return false
+	}
+	if *cycle.DurationSeconds != *snapshot.DurationSeconds ||
+		*snapshot.CycleStartMS >= *cycle.ScheduledEndMS {
+		return false
+	}
+	return *cycle.ScheduledEndMS-*snapshot.CycleStartMS <= quotaBoundaryJitterMS &&
+		snapshot.ObservedAtMS >= *cycle.ScheduledEndMS &&
+		*snapshot.CycleEndMS > snapshot.ObservedAtMS
+}
+
+// cycleBoundaryIsTemporallyInvalidAgainstActive reports whether an incoming
+// boundary is already expired while the active cycle's scheduled end still
+// covers the observation time. Such evidence is temporally stale: temporal
+// validity outranks accuracy, so it must not move a current cycle into the
+// past.
+func cycleBoundaryIsTemporallyInvalidAgainstActive(
+	cycle model.AccountQuotaCycle,
+	snapshot model.AccountQuotaSnapshot,
+) bool {
+	if cycle.ScheduledEndMS == nil ||
+		snapshot.CycleEndMS == nil {
+		return false
+	}
+	return *cycle.ScheduledEndMS > snapshot.ObservedAtMS &&
+		*snapshot.CycleEndMS <= snapshot.ObservedAtMS
+}
+
+// cycleBoundaryCoversObservation reports whether the snapshot's canonical
+// boundary still extends beyond the observation time. Counter-reset
+// reconciliation needs a boundary that is current at the observation to carry
+// the transition; an expired boundary keeps its usage-drop evidence but cannot
+// split lifecycle state on its own.
+func cycleBoundaryCoversObservation(snapshot model.AccountQuotaSnapshot) bool {
+	return snapshot.CycleEndMS != nil &&
+		*snapshot.CycleEndMS > snapshot.ObservedAtMS
+}
+
+// cycleBoundaryWouldRegressExpiredActive reports whether an already expired
+// incoming boundary is materially older than the active boundary. Differences
+// within the provider jitter stay the same canonical boundary and may still be
+// upgraded for precision; a larger backward movement would rewind a previously
+// refreshed boundary into the past. The difference is computed after the
+// ordering precondition, so the subtraction cannot overflow or go negative.
+func cycleBoundaryWouldRegressExpiredActive(
+	cycle model.AccountQuotaCycle,
+	snapshot model.AccountQuotaSnapshot,
+) bool {
+	if cycle.ScheduledEndMS == nil ||
+		snapshot.CycleEndMS == nil ||
+		*snapshot.CycleEndMS > snapshot.ObservedAtMS ||
+		*cycle.ScheduledEndMS <= *snapshot.CycleEndMS {
+		return false
+	}
+	return *cycle.ScheduledEndMS-*snapshot.CycleEndMS >
+		quotaBoundaryJitterMS
+}
+
+// cycleBoundaryCanReplaceActive reports whether an incoming higher-accuracy
+// boundary may replace the active cycle boundary. A temporally stale incoming
+// boundary never qualifies, even on a precision upgrade, and neither does an
+// expired boundary that is materially older than the active one: accuracy
+// alone must not rewind a known boundary into the past.
+func cycleBoundaryCanReplaceActive(
+	cycle model.AccountQuotaCycle,
+	snapshot model.AccountQuotaSnapshot,
+) bool {
+	if snapshot.CycleEndMS == nil {
+		return false
+	}
+	if cycleBoundaryIsTemporallyInvalidAgainstActive(cycle, snapshot) {
+		return false
+	}
+	if cycleBoundaryWouldRegressExpiredActive(cycle, snapshot) {
+		return false
+	}
+	return cycleBoundaryShouldUpgrade(cycle, snapshot)
+}
+
+// correctedActiveCycleActualStart preserves an independently established
+// actual transition when the active cycle's actual start differs from its
+// scheduled start. Boundary evidence updates scheduled timing and must not
+// rewrite that transition.
+func correctedActiveCycleActualStart(
+	cycle model.AccountQuotaCycle,
+	snapshot model.AccountQuotaSnapshot,
+) int64 {
+	if cycle.ScheduledStartMS != nil &&
+		cycle.ActualStartMS != *cycle.ScheduledStartMS {
+		return cycle.ActualStartMS
+	}
+	return *snapshot.CycleStartMS
 }
 
 func quotaCounterResetDetected(
@@ -1274,16 +1441,40 @@ func restoreOrInsertCycle(
 	activationID, observationID int64,
 	snapshot *model.AccountQuotaSnapshot,
 ) (int64, error) {
+	return restoreOrInsertCycleAt(ctx, tx, activationID, observationID, nil, snapshot)
+}
+
+func restoreOrInsertCycleAt(
+	ctx context.Context,
+	tx *sql.Tx,
+	activationID, observationID int64,
+	actualStartMS *int64,
+	snapshot *model.AccountQuotaSnapshot,
+) (int64, error) {
 	closed, err := matchingClosedCycle(ctx, tx, activationID, *snapshot)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return 0, err
 	}
 	if errors.Is(err, sql.ErrNoRows) {
-		return insertCycle(ctx, tx, activationID, observationID, *snapshot)
+		if actualStartMS == nil {
+			return insertCycle(ctx, tx, activationID, observationID, *snapshot)
+		}
+		return insertCycleWithKey(
+			ctx,
+			tx,
+			activationID,
+			observationID,
+			*actualStartMS,
+			providerCycleKey(*snapshot),
+			*snapshot,
+		)
 	}
 
 	if !cycleBoundaryShouldUpgrade(closed, *snapshot) {
 		applyActiveCycleBoundary(snapshot, closed)
+	}
+	if actualStartMS == nil {
+		actualStartMS = snapshot.CycleStartMS
 	}
 	if _, err := tx.ExecContext(ctx, `update account_quota_cycles set
 		state = 'active', scheduled_start_ms = ?, scheduled_end_ms = ?, actual_start_ms = ?,
@@ -1291,7 +1482,7 @@ func restoreOrInsertCycle(
 		last_observation_id = ?, updated_at_ms = ? where id = ?`,
 		snapshot.CycleStartMS,
 		snapshot.CycleEndMS,
-		*snapshot.CycleStartMS,
+		*actualStartMS,
 		snapshot.DurationSeconds,
 		snapshot.BoundaryAccuracy,
 		observationID,
@@ -1928,7 +2119,10 @@ func latestActivationID(ctx context.Context, db *sql.DB, windowID int64, generat
 	return id, err
 }
 
-func previousCycle(ctx context.Context, db *sql.DB, activationID, currentStartMS int64) (model.AccountQuotaCycle, error) {
+// adjacentPreviousCycle returns the cycle immediately preceding currentStartMS.
+// The jitter bound is intentional: this helper is used only while normalizing
+// early-reset fragments, where time adjacency is part of the collapse proof.
+func adjacentPreviousCycle(ctx context.Context, db *sql.DB, activationID, currentStartMS int64) (model.AccountQuotaCycle, error) {
 	return scanCycle(db.QueryRowContext(ctx, `select
 		id, activation_id, provider_cycle_key, state, scheduled_start_ms, scheduled_end_ms,
 		actual_start_ms, actual_end_ms, duration_seconds, boundary_accuracy,
@@ -1939,6 +2133,42 @@ func previousCycle(ctx context.Context, db *sql.DB, activationID, currentStartMS
 			and actual_start_ms < ? and abs(actual_end_ms - ?) <= ?
 		order by actual_end_ms desc, id desc limit 1`,
 		activationID, currentStartMS, currentStartMS, quotaBoundaryJitterMS))
+}
+
+// latestClosedCycleBefore returns the most recent completed quota cycle in the
+// same activation before cutoffMS. Unlike adjacentPreviousCycle, it intentionally
+// permits observation gaps; activation identity provides the lifecycle fence.
+// A mode change is an explicit boundary between fixed/calendar cycle histories,
+// so candidates before that boundary are not exposed as a previous quota cycle.
+func latestClosedCycleBefore(ctx context.Context, db *sql.DB, activationID, cutoffMS int64) (model.AccountQuotaCycle, error) {
+	overlapCutoffMS := cutoffMS
+	if overlapCutoffMS > math.MaxInt64-quotaPreviousCycleOverlapJitterMS {
+		overlapCutoffMS = math.MaxInt64
+	} else {
+		overlapCutoffMS += quotaPreviousCycleOverlapJitterMS
+	}
+	return scanCycle(db.QueryRowContext(ctx, `select
+		candidate.id, candidate.activation_id, candidate.provider_cycle_key, candidate.state,
+		candidate.scheduled_start_ms, candidate.scheduled_end_ms, candidate.actual_start_ms,
+		candidate.actual_end_ms, candidate.duration_seconds, candidate.boundary_accuracy,
+		coalesce(candidate.end_reason, ''), candidate.first_observation_id,
+		candidate.last_observation_id, candidate.parent_cycle_id,
+		candidate.created_at_ms, candidate.updated_at_ms
+		from account_quota_cycles candidate
+		where candidate.activation_id = ? and candidate.actual_end_ms is not null
+			and coalesce(candidate.end_reason, '') <> 'mode_changed'
+			and candidate.actual_start_ms < ?
+			and candidate.actual_end_ms <= ?
+			and not exists (
+				select 1 from account_quota_cycles barrier
+				where barrier.activation_id = candidate.activation_id
+					and barrier.end_reason = 'mode_changed'
+					and barrier.actual_end_ms is not null
+					and barrier.actual_end_ms >= candidate.actual_start_ms
+					and barrier.actual_end_ms <= ?
+			)
+		order by candidate.actual_end_ms desc, candidate.id desc limit 1`,
+		activationID, cutoffMS, overlapCutoffMS, cutoffMS))
 }
 
 type quotaCycleEvidence struct {
@@ -1971,7 +2201,7 @@ func normalizeCycleView(
 	collapsedCycleIDs := []int64{current.ID}
 	var previousResult *model.AccountQuotaCycle
 	for {
-		previous, previousErr := previousCycle(ctx, db, activationID, lookupStartMS)
+		previous, previousErr := adjacentPreviousCycle(ctx, db, activationID, lookupStartMS)
 		if errors.Is(previousErr, sql.ErrNoRows) {
 			break
 		}
@@ -2036,6 +2266,18 @@ func normalizeCycleView(
 	if collapsed && previousResult != nil && previousResult.ActualEndMS != nil {
 		actualEndMS := current.ActualStartMS
 		previousResult.ActualEndMS = &actualEndMS
+	}
+	if previousResult != nil && previousResult.EndReason == "mode_changed" {
+		previousResult = nil
+	}
+	if previousResult == nil {
+		fallback, fallbackErr := latestClosedCycleBefore(ctx, db, activationID, lookupStartMS)
+		if fallbackErr != nil && !errors.Is(fallbackErr, sql.ErrNoRows) {
+			return model.AccountQuotaCycle{}, nil, nil, fallbackErr
+		}
+		if fallbackErr == nil {
+			previousResult = &fallback
+		}
 	}
 	aliases := make(map[int64]int64)
 	if collapsed {

@@ -726,6 +726,10 @@
     "cooling_policy_unverified_hint": "Поддержку трёх состояний в этой сборке CPA подтвердить нельзя, поэтому явное включение cooldown недоступно. Используйте сборку с коммитом {{commit}} или более поздний релиз.",
     "rebuild_mid_system_message_label": "Переносить промежуточные system-сообщения",
     "rebuild_mid_system_message_hint": "Перед отправкой переносить сообщения Claude с ролью system в верхнее поле system.",
+    "claude_request_fingerprint_label": "Отпечаток запроса",
+    "claude_request_fingerprint_hint": "По умолчанию сохраняются подсказки и заголовки вызывающей стороны; также можно включить отпечаток запроса Claude Code CLI.",
+    "claude_request_fingerprint_default": "По умолчанию (управляется вызывающей стороной)",
+    "claude_request_fingerprint_claude_code_cli": "Claude Code CLI",
     "force_mapping_label": "Переписывать модель ответа в alias",
     "model_alias_scope_hint": "Эти псевдонимы относятся только к текущему провайдеру API-ключа. Сопоставления учётных данных OAuth настраиваются в разделе «Управление учётными данными → Настройки OAuth».",
     "input_modalities_placeholder": "Входные модальности: text, image",
@@ -988,13 +992,12 @@
     "quota_source_cache": "Результат предыдущей проверки",
     "quota_source_observed_header": "Данные последнего ответа",
     "quota_source_none": "Нет данных квоты",
+    "quota_details_only": "Квота доступна в деталях",
     "quota_brief_remaining": "Осталось {{percent}}",
     "quota_brief_unknown": "Квота неизвестна",
     "quota_source_short_cache": "Пред. проверка",
     "quota_source_short_observed": "Запись запроса",
     "quota_source_short_none": "Нет данных",
-    "quota_more_windows": "+{{count}}",
-    "quota_more_windows_title": "Еще {{count}} окон квоты. Откройте детали для просмотра.",
     "activity_brief": "{{count}} вызовов · успех {{rate}}",
     "activity_empty": "Нет недавних вызовов",
     "activity_success_failure": "Успешно {{success}} · Ошибки {{failure}}",
@@ -1342,6 +1345,7 @@
     "detail_forecast_basis_previous": "На основе фактических данных прошлого окна",
     "detail_forecast_unavailable": "Недостаточно данных для прогноза, поэтому он не отображается",
     "detail_window_boundary_incomplete": "Полные границы окна недоступны, поэтому использование за интервал не рассчитано",
+    "detail_current_window_boundary_unconfirmed": "Граница текущего периода ещё не подтверждена",
     "detail_scope_incomplete": "Использование по моделям может быть неполным (не сопоставлено: {{count}})",
     "detail_scope_unknown": "Провайдер не передал полный набор моделей, поэтому использование за интервал не рассчитано",
     "detail_quota_snapshot_stale": "Снимок квоты устарел; обновите данные перед использованием",
@@ -1633,7 +1637,6 @@
     "load_failed": "Не удалось загрузить квоту: {{message}}",
     "missing_auth_index": "В файле авторизации отсутствует auth_index",
     "empty_models": "Данные по квоте отсутствуют",
-    "plan_label": "План",
     "group_gemini_models": "Модели Gemini",
     "group_claude_gpt_models": "Модели Claude",
     "group_models_description": "Модели в этой группе: {{models}}",
@@ -1660,13 +1663,7 @@
     "error_badge": "План недоступен",
     "load_failed": "Не удалось получить подписку: {{message}}",
     "missing_auth_index": "В файле авторизации отсутствует auth_index",
-    "empty_data": "Данные подписки отсутствуют",
-    "plan_badge": "{{plan}}",
-    "plan_free": "Free",
-    "plan_pro": "Pro",
-    "plan_ultra": "Ultra",
-    "plan_ultra_lite": "Ultra Lite",
-    "plan_unknown": "Unknown"
+    "empty_data": "Данные подписки отсутствуют"
   },
   "claude_quota": {
     "title": "Квота Claude",
@@ -1688,15 +1685,7 @@
     "iguana_necktie": "Iguana Necktie",
     "weekly_scoped_model": "Недельный {{model}}",
     "limit_index": "Лимит #{{index}}",
-    "extra_usage_label": "Дополнительное использование",
-    "plan_label": "План",
-    "plan_unknown": "Неизвестно",
-    "plan_free": "Free",
-    "plan_pro": "Pro",
-    "plan_max": "Max",
-    "plan_max5": "Max 5x",
-    "plan_max20": "Max 20x",
-    "plan_team": "Team"
+    "extra_usage_label": "Дополнительное использование"
   },
   "codex_quota": {
     "title": "Квота Codex",
@@ -1708,7 +1697,7 @@
     "missing_auth_index": "В файле авторизации отсутствует auth_index",
     "missing_account_id": "В учётных данных Codex отсутствует идентификатор аккаунта ChatGPT",
     "empty_windows": "Данные по квоте отсутствуют",
-    "no_access": "У этих учётных данных нет доступа Codex (план: free).",
+    "no_access": "У этих учётных данных нет доступа Codex.",
     "refresh_button": "Обновить квоту",
     "retry_button": "Повторить",
     "fetch_all": "Получить все",
@@ -1767,13 +1756,7 @@
     "additional_generic_window": "{{name}}: лимит {{duration}}",
     "window_usage": "Использовано {{used}} / {{total}} ч",
     "window_usage_duration": "Использовано {{used}} / {{total}}",
-    "observed_window": "Последний ответ сервиса",
-    "plan_label": "Тариф",
-    "plan_plus": "Plus",
-    "plan_team": "Team",
-    "plan_free": "Free",
-    "plan_pro": "Pro 20x",
-    "plan_prolite": "Pro 5x"
+    "observed_window": "Последний ответ сервиса"
   },
   "kimi_quota": {
     "title": "Квота Kimi",
@@ -1835,9 +1818,6 @@
     "used_percent": "Использовано {{percent}}",
     "reset_at": "Сброс {{time}}",
     "product_usage": "Использование {{product}}",
-    "plan_label": "План",
-    "plan_supergrok": "SuperGrok",
-    "plan_supergrok_heavy": "SuperGrok Heavy",
     "official_api_plan": "Официальный API",
     "official_api_health": "Идентификация через официальный API xAI доступна. Для этих учетных данных OAuth сведения о биллинге и остатке квоты недоступны.",
     "pay_as_you_go_label": "Pay-as-you-go",
@@ -2341,6 +2321,7 @@
     "realtime_console_eyebrow": "Мониторинг в реальном времени",
     "console_subtitle": "Следите за количеством вызовов, успехами, ошибками, токенами и расходами по аккаунтам за выбранный период.",
     "range_today": "Сегодня",
+    "range_yesterday": "Вчера",
     "range_7d": "7д",
     "range_14d": "14д",
     "range_30d": "30д",
@@ -3325,6 +3306,7 @@
       "cpa_connection_risk_title": "Подтвердите изменение подключения CPA",
       "cpa_connection_risk_message": "Вы меняете подключение CPA для Manager Server. Текущий CPA: {{currentBase}}; CPA после сохранения: {{nextBase}}. Это влияет на проксирование, сбор статистики использования и данные мониторинга. Перед продолжением убедитесь, что URL CPA и Management Key полностью верны.",
       "cpa_connection_risk_confirm": "Подтвердить и принять риск",
+      "cpa_switch_unsaved_config": "В текущей конфигурации CPA есть несохранённые изменения. Сначала сохраните или отмените их, а затем переключайте подключение CPA.",
       "current_cpa_base": "Текущий URL CPA",
       "bound_cpa_base": "CPA, привязанный к Manager Server",
       "not_bound": "Не привязан",
@@ -3559,12 +3541,12 @@
         "add": "Добавить API-ключ",
         "generate": "Сгенерировать",
         "empty": "API-ключи отсутствуют",
-        "hint": "Каждая запись — это API-ключ (в том же стиле, что и на странице управления API-ключами)",
+        "hint": "Добавление, изменение и удаление API-ключей сразу сохраняется в CPA; кнопка сохранения страницы не требуется.",
         "edit_title": "Редактирование API-ключа",
         "add_title": "Добавление API-ключа",
         "input_label": "API-ключ",
         "input_placeholder": "Вставьте API-ключ",
-        "input_hint": "Меняет только содержимое локального файла конфигурации, не синхронизируется с интерфейсом управления API-ключами",
+        "input_hint": "После подтверждения изменения API-ключа сразу сохраняются в CPA; генерация только заполняет это поле.",
         "alias_label": "Псевдоним",
         "alias_placeholder": "Например Alice / Team A",
         "alias_hint": "Псевдонимы сохраняются в базе CPAM и связываются с историей запросов по хэшу API-ключа.",
@@ -3585,7 +3567,25 @@
         "alias_error_too_long": "Псевдоним должен быть не длиннее 120 символов",
         "alias_error_duplicate": "Псевдоним уже существует. Используйте уникальный псевдоним.",
         "error_empty": "Введите API-ключ",
-        "error_invalid": "API-ключ содержит недопустимые символы"
+        "error_invalid": "API-ключ содержит недопустимые символы",
+        "error_duplicate": "Этот API-ключ уже существует",
+        "saving": "Сохранение...",
+        "save_failed": "Не удалось сохранить API-ключ",
+        "added": "API-ключ добавлен и сохранён.",
+        "updated": "API-ключ обновлён и сохранён.",
+        "deleted": "API-ключ удалён.",
+        "delete_title": "Удалить API-ключ",
+        "delete_confirm": "Удалить этот API-ключ из CPA?",
+        "save_partial_success": "API-ключ сохранён, но псевдоним сохранить не удалось. Позже повторно отредактируйте псевдоним.",
+        "update_partial_success": "API-ключ обновлён, но псевдоним сохранить или перенести не удалось. Позже повторно отредактируйте псевдоним.",
+        "delete_partial_success": "API-ключ удалён, но очистить псевдоним не удалось.",
+        "stale_key_refreshed": "Этого API-ключа больше нет в CPA; список обновлён.",
+        "canonical_key_missing": "После обновления списка CPA сохранённый API-ключ не найден.",
+        "state_refresh_failed": "Изменение API-ключа отправлено, но последнее состояние не удалось обновить. Перезагрузите страницу, чтобы проверить текущее состояние.",
+        "source_dirty_guard": "В исходной конфигурации есть несохранённые изменения. Сохраните или отмените их перед управлением API-ключами.",
+        "operation_busy": "Выполняется другая операция с API-ключом или сохранение конфигурации. Подождите.",
+        "mutation_outcome_unknown": "Не удалось подтвердить результат изменения API-ключа. Перезагрузите страницу, чтобы проверить текущее состояние CPA, прежде чем продолжать.",
+        "alias_state_unavailable": "Не удалось подтвердить состояние псевдонимов API-ключей. Повторите попытку позже."
       },
       "payload_rules": {
         "rule": "Правило",
@@ -3927,6 +3927,8 @@
     "api_key_compare_title": "Тренд клиентского ключа",
     "api_key_keyword_placeholder": "Поиск по клиентскому ключу, аккаунту или auth label",
     "api_key_rank_title": "Рейтинг клиентских ключей",
+    "api_key_rank_context_top": "Топ-{{limit}} · всего клиентских ключей: {{total}} · сортировка по стоимости",
+    "api_key_rank_context_total": "Всего клиентских ключей: {{total}} · сортировка по стоимости",
     "api_key_warning_title": "Предупреждения по клиентским ключам",
     "credential_rank_title": "Рейтинг учётных данных",
     "credential_warning_title": "Предупреждения по учётным данным",
@@ -4378,6 +4380,8 @@
     "xai_base_url_required": "Введите базовый URL xAI",
     "claude_config_added": "Конфигурация Claude успешно добавлена",
     "claude_config_updated": "Конфигурация Claude успешно обновлена",
+    "claude_fingerprint_not_applied": "Конфигурация сохранена, но отпечаток запроса не вступил в силу: возможно, подключённый CPA не поддерживает fingerprint-profile.",
+    "claude_fingerprint_verify_unavailable": "Конфигурация сохранена, но подтвердить применение отпечатка запроса нельзя. Обновите список провайдеров и проверьте.",
     "claude_config_deleted": "Конфигурация Claude успешно удалена",
     "vertex_config_added": "Конфигурация Vertex успешно добавлена",
     "vertex_config_updated": "Конфигурация Vertex успешно обновлена",
@@ -4523,5 +4527,60 @@
     "env_locked_hint": "Этот переключатель зафиксирован переменной окружения. Измените переменную окружения сервиса и перезапустите его, чтобы изменить значение.",
     "env_locked_reason": "Зафиксировано переменной окружения {{envKey}}. Измените её и перезапустите сервис, чтобы изменить этот переключатель.",
     "gating_note": "Отключение переключателя влияет только на новые проблемы, найденные мониторингом. Уже поставленные или выполняющиеся задачи продолжат работу."
+  },
+  "plans": {
+    "label": "План",
+    "codex": {
+      "free": "Free",
+      "go": "Go",
+      "plus": "Plus",
+      "pro_5x": "Pro 5x",
+      "pro_20x": "Pro 20x",
+      "team": "Team",
+      "business": "Business",
+      "business_premium_5x": {
+        "short": "Business 5x",
+        "full": "Business Premium 5x"
+      },
+      "business_usage_based": {
+        "short": "Business PAYG",
+        "full": "Business Usage-based"
+      },
+      "enterprise": "Enterprise",
+      "enterprise_automation": {
+        "short": "Ent. Auto",
+        "full": "Enterprise Automation"
+      },
+      "enterprise_usage_based": {
+        "short": "Ent. PAYG",
+        "full": "Enterprise Usage-based"
+      },
+      "edu": {
+        "short": "Edu",
+        "full": "Education"
+      },
+      "edu_plus": {
+        "short": "Edu Plus",
+        "full": "Education Plus"
+      },
+      "edu_pro": {
+        "short": "Edu Pro",
+        "full": "Education Pro"
+      }
+    },
+    "claude": {
+      "free": "Free",
+      "pro": "Pro",
+      "max": "Max",
+      "max_5x": "Max 5x",
+      "max_20x": "Max 20x",
+      "team": "Team"
+    },
+    "antigravity": {
+      "free": "Free",
+      "pro": "Pro",
+      "ultra": "Ultra",
+      "ultra_lite": "Ultra Lite"
+    }
   }
 }

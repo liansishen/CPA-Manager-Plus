@@ -140,6 +140,24 @@ describe('QuotaWindowCard', () => {
     expect(renderer.root.findAllByProps({ 'data-quota-model-comparison': 'true' })).toHaveLength(0);
   });
 
+  it('keeps a fixed billing interval in standard mode when mode is inferred', () => {
+    const renderer = renderCard(
+      makeWindow({
+        kind: 'billing',
+        windowMode: 'fixed',
+        limitWindowSeconds: 30 * 24 * 60 * 60,
+        cycleStartMs: 1_000,
+        cycleEndMs: 30 * 24 * 60 * 60 * 1_000,
+      })
+    );
+
+    expect(renderer.root.findAllByProps({ 'data-quota-card-mode': 'standard' })).toHaveLength(1);
+    expect(renderer.root.findAllByProps({ 'data-quota-standard-comparison': 'true' })).toHaveLength(
+      1
+    );
+    expect(renderer.root.findAllByProps({ 'data-quota-card-mode': 'other' })).toHaveLength(0);
+  });
+
   it('uses semantic colors for the current usage metric icons', () => {
     const renderer = renderCard(makeWindow());
     const current = renderer.root.findByProps({ 'data-quota-usage-period': 'current' });
@@ -171,6 +189,20 @@ describe('QuotaWindowCard', () => {
     ]);
   });
 
+  it('uses the shared compact formatter for large token counts', () => {
+    const renderer = renderCard(
+      makeWindow({
+        currentUsage: usage({ totalTokens: 1_000_190_000 }),
+      })
+    );
+    const currentText = readText(
+      renderer.root.findByProps({ 'data-quota-usage-period': 'current' })
+    );
+
+    expect(currentText).toContain('1.0B');
+    expect(currentText).not.toContain('1000.2M');
+  });
+
   it('uses complete fixed-cycle boundaries instead of the current data cutoff', () => {
     const cycleStartMs = Date.parse('2026-08-05T10:00:00Z');
     const cycleEndMs = Date.parse('2026-08-05T15:00:00Z');
@@ -190,6 +222,58 @@ describe('QuotaWindowCard', () => {
       expect(currentText).toContain(formatDisplayRange(cycleStartMs, cycleEndMs));
       expect(currentText).not.toContain(formatDisplayRange(cycleStartMs, dataEndMs));
     }
+  });
+
+  it('does not present a provisional current candidate as a confirmed range', () => {
+    const currentStartMs = Date.parse('2026-08-28T17:42:00Z');
+    const currentEndMs = Date.parse('2026-08-28T22:42:00Z');
+    const previousStartMs = Date.parse('2026-08-28T07:23:00Z');
+    const previousEndMs = Date.parse('2026-08-28T12:23:00Z');
+    const window = makeWindow({
+      boundaryAccuracy: 'unknown',
+      cycleStartMs: currentStartMs,
+      cycleEndMs: currentEndMs,
+      usage: null,
+      currentUsage: null,
+      previousUsage: usage({ fromMs: previousStartMs, toMs: previousEndMs }),
+      forecast: null,
+      currentCycle: {
+        id: 2,
+        activationId: 1,
+        state: 'provisional',
+        scheduledStartMs: currentStartMs,
+        scheduledEndMs: currentEndMs,
+        actualStartMs: currentStartMs,
+        actualEndMs: null,
+        durationSeconds: 5 * 60 * 60,
+        boundaryAccuracy: 'unknown',
+        endReason: '',
+        parentCycleId: null,
+        forecastEligible: false,
+      },
+      previousCycle: {
+        id: 1,
+        activationId: 1,
+        state: 'closed',
+        scheduledStartMs: previousStartMs,
+        scheduledEndMs: previousEndMs,
+        actualStartMs: previousStartMs,
+        actualEndMs: previousEndMs,
+        durationSeconds: 5 * 60 * 60,
+        boundaryAccuracy: 'exact',
+        endReason: 'scheduled',
+        parentCycleId: null,
+        forecastEligible: false,
+      },
+    });
+
+    const renderer = renderCard(window);
+    const current = renderer.root.findByProps({ 'data-quota-usage-period': 'current' });
+    const previous = renderer.root.findByProps({ 'data-quota-usage-period': 'previous' });
+
+    expect(readText(current)).toContain('accounts.detail_current_window_boundary_unconfirmed');
+    expect(readText(current)).not.toContain(formatDisplayRange(currentStartMs, currentEndMs));
+    expect(readText(previous)).toContain(formatDisplayRange(previousStartMs, previousEndMs));
   });
 
   it('shows scheduled previous-cycle bounds while retaining actual usage bounds', () => {

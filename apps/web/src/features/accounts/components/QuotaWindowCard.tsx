@@ -23,15 +23,18 @@ import {
   IconChartLine,
   IconCheck,
 } from '@/components/ui/icons';
-import type { AccountQuotaWindowKind } from '@/features/accounts/model/accountQuotaDisplayWindows';
+import {
+  isIntervalAccountQuotaWindow,
+  isModelScopedAccountQuotaWindow,
+  type AccountQuotaWindowKind,
+} from '@/features/accounts/model/accountQuotaDisplayWindows';
 import type { AccountQuotaBoundaryAccuracy } from '@/features/accounts/model/accountQuotaWindowDefinitions';
 import type {
   AccountDetailQuotaWindow,
   AccountDetailWindowUsageSummary,
 } from '@/features/accounts/model/accountDetailViewModel';
 import { formatQuotaResetDisplay } from '@/features/accounts/model/accountsPagePresentation';
-import { formatUsd } from '@/utils/usage';
-import { isCodexMainQuotaModelScope } from '@/utils/quota/codexQuota';
+import { formatCompactNumber, formatUsd } from '@/utils/usage';
 import { QuotaProgressBar } from './QuotaProgressBar';
 import styles from './QuotaWindowCard.module.scss';
 
@@ -56,13 +59,8 @@ const formatPercent = (value: number | null | undefined, digits = 0): string => 
   return `${value.toFixed(digits)}%`;
 };
 
-const formatCompactNumber = (value: number | null | undefined): string => {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return '-';
-  if (value < 1_000) return String(Math.round(value));
-  if (value < 1_000_000) return `${(value / 1_000).toFixed(value < 10_000 ? 1 : 0)}K`;
-  if (value < 1_000_000_000) return `${(value / 1_000_000).toFixed(value < 10_000_000 ? 1 : 0)}M`;
-  return `${(value / 1_000_000_000).toFixed(1)}B`;
-};
+const formatOptionalCompactNumber = (value: number | null | undefined): string =>
+  typeof value !== 'number' || !Number.isFinite(value) ? '-' : formatCompactNumber(value);
 
 const formatMoney = (value: number | null | undefined): string => {
   if (typeof value !== 'number' || !Number.isFinite(value)) return '-';
@@ -84,11 +82,29 @@ const formatRange = (
   return `${formatter.format(fromMs)} — ${formatter.format(toMs)}`;
 };
 
+const isReliableBoundary = (accuracy: AccountQuotaBoundaryAccuracy | null | undefined) =>
+  accuracy === 'exact' || accuracy === 'derived';
+
 const formatCurrentWindowRange = (
   window: AccountDetailQuotaWindow,
   usage: AccountDetailWindowUsageSummary | null | undefined,
-  locale: string
+  locale: string,
+  unconfirmedLabel: string
 ): string => {
+  const hasLifecycleEvidence =
+    window.availability !== undefined ||
+    window.currentCycle !== undefined ||
+    window.previousCycle !== undefined;
+  if (
+    (window.windowMode === 'fixed' || window.windowMode === 'calendar') &&
+    hasLifecycleEvidence &&
+    (!window.currentCycle ||
+      window.currentCycle.state === 'provisional' ||
+      !isReliableBoundary(window.currentCycle.boundaryAccuracy))
+  ) {
+    return unconfirmedLabel;
+  }
+
   const cycleStartMs = window.cycleStartMs;
   const cycleEndMs = window.cycleEndMs;
   if (
@@ -132,19 +148,10 @@ const formatObservedAt = (value: number, locale: string): string =>
     minute: '2-digit',
   }).format(value);
 
-const isReliableBoundary = (accuracy: AccountQuotaBoundaryAccuracy | null | undefined) =>
-  accuracy === 'exact' || accuracy === 'derived';
-
-const isIntervalWindow = (window: AccountDetailQuotaWindow): boolean =>
-  window.windowMode === 'fixed' ||
-  window.windowMode === 'calendar' ||
-  window.windowMode === 'rolling';
-
 const inferCardMode = (window: AccountDetailQuotaWindow): QuotaWindowCardMode => {
-  if (!isIntervalWindow(window)) return 'other';
-  if (window.source === 'codex' && isCodexMainQuotaModelScope(window.modelScope)) return 'standard';
-  if (window.modelScope?.complete === false) return 'model';
-  return window.modelScope?.kind && window.modelScope.kind !== 'all' ? 'model' : 'standard';
+  if (!isIntervalAccountQuotaWindow(window)) return 'other';
+  if (isModelScopedAccountQuotaWindow(window)) return 'model';
+  return 'standard';
 };
 
 const windowIconForKind = (
@@ -225,13 +232,13 @@ const UsageMetricList = ({
       icon={<IconChartLine size={16} />}
       tone="blue"
       label={labels.requests}
-      value={formatCompactNumber(usage.totalRequests)}
+      value={formatOptionalCompactNumber(usage.totalRequests)}
     />
     <MetricItem
       icon={<IconBinary size={16} />}
       tone="teal"
       label={labels.tokens}
-      value={formatCompactNumber(usage.totalTokens)}
+      value={formatOptionalCompactNumber(usage.totalTokens)}
     />
     <MetricItem
       icon={<IconDollarSign size={16} />}
@@ -328,13 +335,13 @@ const ForecastColumn = ({
           icon={<IconChartLine size={16} />}
           tone="blue"
           label={labels.requests}
-          value={formatCompactNumber(forecast.requests)}
+          value={formatOptionalCompactNumber(forecast.requests)}
         />
         <MetricItem
           icon={<IconBinary size={16} />}
           tone="teal"
           label={labels.tokens}
-          value={formatCompactNumber(forecast.tokens)}
+          value={formatOptionalCompactNumber(forecast.tokens)}
         />
         <MetricItem
           icon={<IconDollarSign size={16} />}
@@ -401,6 +408,10 @@ export const QuotaWindowCard = ({
   const forecastEmptyMessage = t('accounts.detail_forecast_unavailable', {
     defaultValue: '暂无可用预测依据，暂不预测',
   });
+  const currentWindowBoundaryUnconfirmed = t(
+    'accounts.detail_current_window_boundary_unconfirmed',
+    { defaultValue: '周期边界尚未确认' }
+  );
   const hasUsageScopeWarning = (item: AccountDetailWindowUsageSummary | null | undefined) =>
     item?.scopeMatchStatus === 'partial' || item?.scopeMatchStatus === 'unmatched';
   const hasScopeWarning =
@@ -603,7 +614,7 @@ export const QuotaWindowCard = ({
 
   const progress = <QuotaProgress className={styles.bar} percent={q.remainingPercent} />;
 
-  if (resolvedMode === 'other' || !isIntervalWindow(q)) {
+  if (resolvedMode === 'other' || !isIntervalAccountQuotaWindow(q)) {
     return (
       <div
         className={`${styles.card} ${styles.otherCard}`}
@@ -658,7 +669,12 @@ export const QuotaWindowCard = ({
             />
             <UsageColumn
               title={t('accounts.detail_current_used', { defaultValue: '当前窗口已用' })}
-              subtitle={formatCurrentWindowRange(q, usage, resolvedLocale)}
+              subtitle={formatCurrentWindowRange(
+                q,
+                usage,
+                resolvedLocale,
+                currentWindowBoundaryUnconfirmed
+              )}
               period="current"
               usage={usage}
               labels={usageLabels}
@@ -713,7 +729,12 @@ export const QuotaWindowCard = ({
         />
         <UsageColumn
           title={t('accounts.detail_current_used', { defaultValue: '当前窗口已用' })}
-          subtitle={formatCurrentWindowRange(q, usage, resolvedLocale)}
+          subtitle={formatCurrentWindowRange(
+            q,
+            usage,
+            resolvedLocale,
+            currentWindowBoundaryUnconfirmed
+          )}
           period="current"
           usage={usage}
           labels={usageLabels}

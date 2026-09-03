@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { KeyboardEvent, MouseEvent as ReactMouseEvent, SetStateAction } from 'react';
+import type {
+  KeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  ReactNode,
+  SetStateAction,
+} from 'react';
 import { createPortal } from 'react-dom';
-import type { TFunction } from 'i18next';
 import { useLocation, useNavigate, type BlockerFunction } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
@@ -45,7 +49,9 @@ import {
   KIMI_CONFIG,
   XAI_CONFIG,
   buildObservedCodexQuotaState,
+  refreshQuotaWithConfig,
   type QuotaConfig,
+  type QuotaSetter,
 } from '@/components/quota';
 import { buildQuotaFailureState, getScopedQuotaState } from '@/components/quota/quotaConfigs';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
@@ -81,9 +87,7 @@ import {
   createCodexReauthTargetFromAuthFile,
   type CodexReauthTarget,
 } from '@/features/oauth/codexReauthModel';
-import {
-  runCredentialVisibilityRetry,
-} from '@/features/accounts/model/accountCredentialVisibilityRetry';
+import { runCredentialVisibilityRetry } from '@/features/accounts/model/accountCredentialVisibilityRetry';
 import {
   ACCOUNT_CODEX_STATUS_FILTERS,
   buildAccountInspectionBySelectionKey,
@@ -93,6 +97,8 @@ import {
   findAccountRowForInspectionTarget,
   filterAccountRows,
   getHandledAccountInspectionResultKeys,
+  getPlanOptionLabel,
+  getPlanOptionValue,
   getPlanOptions,
   getProviderOptions,
   isAccountCodexStatusFilter,
@@ -125,6 +131,7 @@ import {
   createAccountCredentialMutationBaseline,
   hasAccountCredentialMutationEvidence,
   listAccountCredentialMutationMarkers,
+  resolveAccountCredentialMutationFiles,
   type AccountCredentialMutationMarker,
 } from '@/features/accounts/model/accountCredentialMutationMarker';
 import {
@@ -159,6 +166,7 @@ import {
 import {
   buildAccountQuotaDisplayWindows,
   getQuotaWindowShortLabel,
+  isStandardAccountQuotaListWindow,
   type AccountQuotaDisplayWindow,
 } from '@/features/accounts/model/accountQuotaDisplayWindows';
 import {
@@ -181,10 +189,8 @@ import {
   DETAIL_EVENTS_LIMIT,
   DETAIL_EVENTS_RANGE_MS,
   PAGE_SIZE_OPTIONS,
-  buildAntigravityQuotaMatrix,
-  formatCompactNumber,
+  formatHistoryNumber,
   formatHistorySuccessRate,
-  formatMoney,
   formatPercent,
   formatQuotaResetDisplay,
   formatQuotaResetTooltipParams,
@@ -197,6 +203,7 @@ import {
   type AccountsView,
   type DetailTab,
 } from '@/features/accounts/model/accountsPagePresentation';
+import { formatCompactNumber, formatCompactUsd, formatUsd } from '@/utils/usage';
 import {
   getAuthFileCodexInspectionKeyForFile,
   getAuthFileCodexInspectionKeyForIdentity,
@@ -259,7 +266,6 @@ import {
   AccountModelsTab,
   AccountOverviewTab,
   AccountProviderTabs,
-  AccountQuotaMatrix,
   AccountQuotaTab,
   AccountsBatchDeletePreview,
 } from '@/features/accounts/components';
@@ -268,7 +274,6 @@ import {
   consumeCodexRateLimitResetCredit,
   monitoringAnalyticsApi,
   usageServiceApi,
-  type AuthFilesApiRequestScope,
   type AccountActionCandidate,
   type AccountQuotaSnapshotObservationInput,
   type AccountQuotaSnapshotWriteEntry,
@@ -327,8 +332,40 @@ import type {
 import { getServerCredentialMutationSyncKey } from '@/features/monitoring/model/credentialInspectionSnapshot';
 import styles from './AccountsPage.module.scss';
 
-type QuotaUpdater<T> = T | ((prev: T) => T);
-type QuotaSetter<T> = (updater: QuotaUpdater<Record<string, T>>) => void;
+const renderAccountDetailTrigger = ({
+  isSelectionMode,
+  className,
+  title,
+  ariaLabel,
+  kind,
+  onOpen,
+  children,
+}: {
+  isSelectionMode: boolean;
+  className: string;
+  title: string;
+  ariaLabel: string;
+  kind: 'history' | 'quota';
+  onOpen: () => void;
+  children: ReactNode;
+}) =>
+  isSelectionMode ? (
+    <div className={className} title={title} data-account-detail-region={kind}>
+      {children}
+    </div>
+  ) : (
+    <button
+      type="button"
+      className={`${className} ${styles.accountCardDetailTrigger}`}
+      title={title}
+      aria-label={ariaLabel}
+      data-account-detail-region={kind}
+      data-account-detail-trigger={kind}
+      onClick={onOpen}
+    >
+      {children}
+    </button>
+  );
 
 const MAX_CONCURRENT_QUOTA_REFRESHES_PER_PROVIDER = 1;
 const MAX_CONCURRENT_QUOTA_REFRESH_PROVIDERS = 3;
@@ -506,7 +543,8 @@ const pruneCredentialQuotaStatesForProviderMutation = <
   current: Record<string, TState>,
   targetFiles: readonly AuthFileItem[],
   getStoreKey: (file: AuthFileItem) => string,
-  preserveEvidenceAfterMs = 0
+  preserveEvidenceAfterMs = 0,
+  preservedFiles: readonly AuthFileItem[] = []
 ): Record<string, TState> => {
   const storeKeys = new Set(targetFiles.map(getStoreKey));
   const fileNames = new Set(targetFiles.map((file) => file.name));
@@ -521,6 +559,14 @@ const pruneCredentialQuotaStatesForProviderMutation = <
       !storeKeys.has(key) &&
       (!stateFileKey || !storeKeys.has(stateFileKey)) &&
       (!stateFileName || !fileNames.has(stateFileName))
+    ) {
+      return;
+    }
+    if (
+      preservedFiles.some((file) => {
+        const preservedStoreKey = getStoreKey(file);
+        return key === preservedStoreKey || stateFileKey === preservedStoreKey;
+      })
     ) {
       return;
     }
@@ -870,59 +916,6 @@ const getRemainingBarClass = (row: AccountRow) => {
   if (row.quota.status === 'ok') return styles.quotaBarGood;
   return styles.quotaBarNeutral;
 };
-
-async function refreshQuotaWithConfig<TState, TData>({
-  config,
-  file,
-  setQuota,
-  t,
-  isCurrent,
-  requestScope,
-}: {
-  config: QuotaConfig<TState, TData>;
-  file: AuthFileItem;
-  setQuota: QuotaSetter<TState>;
-  t: TFunction;
-  isCurrent: () => boolean;
-  requestScope?: AuthFilesApiRequestScope;
-}) {
-  const storeKey = config.getStoreKey?.(file) ?? file.name;
-  const cacheGeneration = captureQuotaCacheGeneration();
-  try {
-    const data = await config.fetchQuota(file, t, requestScope);
-    if (!isCurrent()) return null;
-    const committed = commitIfQuotaCacheCurrent(cacheGeneration, () => {
-      setQuota((prev) => ({
-        ...prev,
-        [storeKey]: config.buildSuccessState(data, file),
-      }));
-    });
-    return committed ? data : null;
-  } catch (error: unknown) {
-    if (!isCurrent()) return null;
-    const message = error instanceof Error ? error.message : t('common.unknown_error');
-    const status =
-      typeof error === 'object' && error !== null && 'status' in error
-        ? Number((error as { status?: unknown }).status)
-        : undefined;
-    commitIfQuotaCacheCurrent(cacheGeneration, () => {
-      setQuota((prev) => {
-        const previousState = getScopedQuotaState(config, prev, file);
-        return {
-          ...prev,
-          [storeKey]: buildQuotaFailureState(
-            config,
-            message,
-            Number.isFinite(status) ? status : undefined,
-            file,
-            previousState
-          ),
-        };
-      });
-    });
-    return null;
-  }
-}
 
 export function AccountsPage() {
   const { t, i18n } = useTranslation();
@@ -1339,7 +1332,9 @@ export function AccountsPage() {
       createdAtMs: number,
       options?: {
         credentialFiles?: readonly AuthFileItem[];
+        inventoryFiles?: readonly AuthFileItem[];
         supersedeRequests?: boolean;
+        scope?: 'provider' | 'credential';
       }
     ) => AuthFileItem[]
   >(() => []);
@@ -1575,19 +1570,20 @@ export function AccountsPage() {
     async (options: { force?: boolean } = {}) => {
       const force = options.force === true;
       const synchronizationScopeKey = credentialEvidenceScopeKey;
-      const markers = listAccountCredentialMutationMarkers(connectionFingerprint).filter((marker) => {
-        if (consumedCredentialMutationMarkerIdsRef.current.has(marker.id)) return false;
-        if (force) return true;
-        const currentEvidence = JSON.stringify(
-          createAccountCredentialMutationBaseline(files, marker.provider)
-        );
-        const exhaustedEvidence = credentialMutationMarkerExhaustedRef.current.get(marker.id);
-        return exhaustedEvidence !== `${synchronizationScopeKey}\u001e${currentEvidence}`;
-      });
-      if (markers.length === 0) return false;
-      const pendingSynchronization = credentialMutationMarkerSynchronizationsRef.current.get(
-        synchronizationScopeKey
+      const markers = listAccountCredentialMutationMarkers(connectionFingerprint).filter(
+        (marker) => {
+          if (consumedCredentialMutationMarkerIdsRef.current.has(marker.id)) return false;
+          if (force) return true;
+          const currentEvidence = JSON.stringify(
+            createAccountCredentialMutationBaseline(files, marker.provider)
+          );
+          const exhaustedEvidence = credentialMutationMarkerExhaustedRef.current.get(marker.id);
+          return exhaustedEvidence !== `${synchronizationScopeKey}\u001e${currentEvidence}`;
+        }
       );
+      if (markers.length === 0) return false;
+      const pendingSynchronization =
+        credentialMutationMarkerSynchronizationsRef.current.get(synchronizationScopeKey);
       if (pendingSynchronization) return pendingSynchronization;
 
       const synchronization = (async () => {
@@ -1597,10 +1593,6 @@ export function AccountsPage() {
             const providerMarkers = markersByProvider.get(marker.provider) ?? [];
             providerMarkers.push(marker);
             markersByProvider.set(marker.provider, providerMarkers);
-          });
-          markersByProvider.forEach((providerMarkers, provider) => {
-            const markerAtMs = Math.max(...providerMarkers.map((marker) => marker.createdAtMs));
-            invalidateProviderCredentialEvidenceRef.current(provider, markerAtMs);
           });
 
           const retry = await runCredentialVisibilityRetry<AuthFileItem[]>({
@@ -1647,22 +1639,37 @@ export function AccountsPage() {
                   );
                 }
               });
-            if (evidencedMarkers.length === 0) return;
-            const markerAtMs = Math.max(...providerMarkers.map((marker) => marker.createdAtMs));
-            const targetFiles = invalidateProviderCredentialEvidenceRef.current(
-              provider,
-              markerAtMs,
-              {
-                credentialFiles: reloadedFiles,
-                supersedeRequests: false,
-              }
+            const sortedEvidencedMarkers = [...evidencedMarkers].sort(
+              (left, right) =>
+                left.createdAtMs - right.createdAtMs || left.id.localeCompare(right.id)
             );
-            if (targetFiles.length === 0) return;
-            evidencedMarkers.forEach((marker) => {
+            if (sortedEvidencedMarkers.length === 0) return;
+            let providerConsumed = false;
+            sortedEvidencedMarkers.forEach((marker) => {
+              const markerFiles = marker.requireObservedMutation
+                ? resolveAccountCredentialMutationFiles(marker, reloadedFiles)
+                : reloadedFiles.filter((file) => normalizeAccountProvider(file) === provider);
+              const affectedFilesBySelectionKey = new Map<string, AuthFileItem>();
+              markerFiles.forEach((file) => {
+                affectedFilesBySelectionKey.set(getAuthFileSelectionKey(file), file);
+              });
+              const targetFiles = invalidateProviderCredentialEvidenceRef.current(
+                provider,
+                marker.createdAtMs,
+                {
+                  credentialFiles: Array.from(affectedFilesBySelectionKey.values()),
+                  inventoryFiles: reloadedFiles,
+                  supersedeRequests: false,
+                  scope: marker.requireObservedMutation ? 'credential' : 'provider',
+                }
+              );
+              if (targetFiles.length === 0) return;
               consumedIds.push(marker.id);
               credentialMutationMarkerAttemptsRef.current.delete(marker.id);
               credentialMutationMarkerExhaustedRef.current.delete(marker.id);
+              providerConsumed = true;
             });
+            if (!providerConsumed) return;
             publishAccountCredentialMutationRevision({
               connectionFingerprint,
               provider,
@@ -2494,29 +2501,56 @@ export function AccountsPage() {
       createdAtMs: number,
       options: {
         credentialFiles?: readonly AuthFileItem[];
+        inventoryFiles?: readonly AuthFileItem[];
         supersedeRequests?: boolean;
+        scope?: 'provider' | 'credential';
       } = {}
     ): AuthFileItem[] => {
       const normalizedProvider = provider.trim().toLowerCase().replace(/_/g, '-');
       if (!normalizedProvider) return [];
+      const scope = options.scope ?? 'provider';
       const credentialFiles = options.credentialFiles ?? files;
+      const inventoryFiles = options.inventoryFiles ?? files;
       const supersedeRequests = options.supersedeRequests !== false;
-      const targetFiles = credentialFiles.filter(
-        (file) => normalizeAccountProvider(file) === normalizedProvider
-      );
+      const targetFiles =
+        scope === 'credential' && !options.credentialFiles
+          ? []
+          : credentialFiles.filter((file) => normalizeAccountProvider(file) === normalizedProvider);
+      if (targetFiles.length === 0) return [];
+      const targetSelectionKeys = new Set(targetFiles.map((file) => getAuthFileSelectionKey(file)));
+      const preservedFiles =
+        scope === 'credential'
+          ? inventoryFiles.filter(
+              (file) =>
+                normalizeAccountProvider(file) === normalizedProvider &&
+                !targetSelectionKeys.has(getAuthFileSelectionKey(file))
+            )
+          : [];
       const providerBoundary = buildProviderCredentialMutationBoundary(createdAtMs);
       const rawStatusBoundaryEntries = targetFiles.flatMap((file) => {
         const boundary = buildCredentialMutationRawStatusBoundary(file, createdAtMs);
         return boundary ? ([[getAuthFileSelectionKey(file), boundary]] as const) : [];
       });
+      const credentialBoundaryEntries =
+        scope === 'credential'
+          ? targetFiles.map((file) => [getAuthFileSelectionKey(file), providerBoundary] as const)
+          : [];
+      const boundaryEntries: Array<readonly [string, AccountCredentialEvidenceBoundary]> = [
+        ...(scope === 'provider'
+          ? [
+              [
+                getCredentialEvidenceProviderBoundaryKey(normalizedProvider),
+                providerBoundary,
+              ] as const,
+            ]
+          : credentialBoundaryEntries),
+        ...rawStatusBoundaryEntries,
+      ];
       setCredentialEvidenceBoundaries((current) =>
-        upsertAccountCredentialEvidenceBoundaries(current, [
-          [getCredentialEvidenceProviderBoundaryKey(normalizedProvider), providerBoundary],
-          ...rawStatusBoundaryEntries,
-        ])
+        upsertAccountCredentialEvidenceBoundaries(current, boundaryEntries)
       );
 
-      if (supersedeRequests) {
+      if (supersedeRequests && scope === 'provider') {
         headerSnapshotRequestGenerationRef.current += 1;
         invalidateInspectionSummaryRequest();
         accountActionCandidatesReqIdRef.current += 1;
@@ -2541,6 +2575,7 @@ export function AccountsPage() {
           pruneCodexQuotaStatesForCredentialMutation(current, {
             affectedFileNames,
             invalidatedStoreKeys,
+            preservedFiles,
             preserveEvidenceAfterMs: createdAtMs,
           })
         );
@@ -2570,7 +2605,8 @@ export function AccountsPage() {
             current,
             targetFiles,
             (file) => config.getStoreKey?.(file) ?? file.name,
-            createdAtMs
+            createdAtMs,
+            preservedFiles
           )
         );
       };
@@ -2952,11 +2988,12 @@ export function AccountsPage() {
       let firstAttempt = true;
       const retry = await runCredentialVisibilityRetry<AuthFileItem[]>({
         load: async () => {
-          const loadedFiles = firstAttempt && options.reload === false
-            ? files
-            : firstAttempt
-              ? await reloadInspectionCredentialArtifacts({ requireSuccessfulReload: true })
-              : await loadFiles({ throwOnError: true });
+          const loadedFiles =
+            firstAttempt && options.reload === false
+              ? files
+              : firstAttempt
+                ? await reloadInspectionCredentialArtifacts({ requireSuccessfulReload: true })
+                : await loadFiles({ throwOnError: true });
           firstAttempt = false;
           if (!loadedFiles) throw new Error(t('notification.refresh_failed'));
           return loadedFiles;
@@ -2992,13 +3029,7 @@ export function AccountsPage() {
       });
       return result;
     },
-    [
-      credentialEvidenceScopeKey,
-      files,
-      loadFiles,
-      reloadInspectionCredentialArtifacts,
-      t,
-    ]
+    [credentialEvidenceScopeKey, files, loadFiles, reloadInspectionCredentialArtifacts, t]
   );
 
   const synchronizePendingAccountDirectReauths = useCallback(
@@ -3751,7 +3782,27 @@ export function AccountsPage() {
     [actionCandidatesByRowKey, quotaCooldownsByRowKey, requestEvidenceBySelectionKey, rows]
   );
   const providerOptions = useMemo(() => getProviderOptions(rows), [rows]);
-  const planOptions = useMemo(() => getPlanOptions(rows), [rows]);
+  const planOptions = useMemo(() => getPlanOptions(rows, t), [rows, t]);
+  const planFilterValue = useMemo(
+    () => getPlanOptionValue(rows, planFilter, t),
+    [planFilter, rows, t]
+  );
+  const effectivePlanOptions = useMemo(() => {
+    if (
+      planFilterValue === 'all' ||
+      planOptions.some((option) => option.value === planFilterValue)
+    ) {
+      return planOptions;
+    }
+
+    return [
+      ...planOptions,
+      {
+        value: planFilterValue,
+        label: getPlanOptionLabel(rows, planFilterValue, t),
+      },
+    ];
+  }, [planFilterValue, planOptions, rows, t]);
   const recommendations = useMemo(
     () => buildAccountRecommendations(rows, requestEvidenceBySelectionKey),
     [requestEvidenceBySelectionKey, rows]
@@ -3765,16 +3816,20 @@ export function AccountsPage() {
       filterAccountRows(rows, {
         provider: providerFilter,
         status: statusFilter,
-        plan: planFilter,
+        plan: planFilterValue,
         quotaBand: quotaBandFilter,
         search,
         codexStatusBySelectionKey,
+        pendingActionsByRowKey: actionCandidatesByRowKey,
+        quotaCooldownsByRowKey,
         requestEvidenceBySelectionKey,
       }),
     [
+      actionCandidatesByRowKey,
       codexStatusBySelectionKey,
-      planFilter,
+      planFilterValue,
       providerFilter,
+      quotaCooldownsByRowKey,
       quotaBandFilter,
       requestEvidenceBySelectionKey,
       rows,
@@ -5429,7 +5484,8 @@ export function AccountsPage() {
       if (row.runtimeOnly) return false;
       const refreshWithConfig = <TState, TData>(
         config: QuotaConfig<TState, TData>,
-        setQuota: QuotaSetter<TState>
+        setQuota: QuotaSetter<TState>,
+        currentState?: TState
       ) => {
         const storeKey = config.getStoreKey?.(row.raw) ?? row.fileName;
         return refreshQuotaWithConfig({
@@ -5442,13 +5498,18 @@ export function AccountsPage() {
             `${config.type}:${storeKey}`
           ),
           requestScope: authFilesRequestScope,
+          currentState,
         });
       };
       switch (row.provider) {
         case CODEX_CONFIG.type: {
-          const data = await refreshWithConfig(CODEX_CONFIG, setCodexQuota);
-          if (!data) return false;
-          const refreshedQuota = CODEX_CONFIG.buildSuccessState(data, row.raw);
+          const result = await refreshWithConfig(
+            CODEX_CONFIG,
+            setCodexQuota,
+            getScopedQuotaState(CODEX_CONFIG, baseQuotaStores.codexQuota, row.raw)
+          );
+          if (!result || result.status !== 'success') return false;
+          const refreshedQuota = result.state;
           const healthyQuota = isKnownHealthyCodexQuota(refreshedQuota);
           invalidateCodexCredentialStatusForSelectionKeys([row.selectionKey], {
             supersedeAuthenticationActionEvidence: true,
@@ -5458,17 +5519,44 @@ export function AccountsPage() {
           return true;
         }
         case CLAUDE_CONFIG.type:
-          return Boolean(await refreshWithConfig(CLAUDE_CONFIG, setClaudeQuota));
+          return (
+            (
+              await refreshWithConfig(
+                CLAUDE_CONFIG,
+                setClaudeQuota,
+                getScopedQuotaState(CLAUDE_CONFIG, baseQuotaStores.claudeQuota, row.raw)
+              )
+            )?.status === 'success'
+          );
         case ANTIGRAVITY_CONFIG.type:
-          return Boolean(await refreshWithConfig(ANTIGRAVITY_CONFIG, setAntigravityQuota));
+          return (
+            (
+              await refreshWithConfig(
+                ANTIGRAVITY_CONFIG,
+                setAntigravityQuota,
+                getScopedQuotaState(ANTIGRAVITY_CONFIG, baseQuotaStores.antigravityQuota, row.raw)
+              )
+            )?.status === 'success'
+          );
         case KIMI_CONFIG.type:
-          return Boolean(await refreshWithConfig(KIMI_CONFIG, setKimiQuota));
+          return (
+            (
+              await refreshWithConfig(
+                KIMI_CONFIG,
+                setKimiQuota,
+                getScopedQuotaState(KIMI_CONFIG, baseQuotaStores.kimiQuota, row.raw)
+              )
+            )?.status === 'success'
+          );
         case XAI_CONFIG.type:
-          return Boolean(
-            await refreshWithConfig<XaiQuotaState, NonNullable<XaiQuotaState['billing']>>(
-              XAI_CONFIG,
-              setXaiQuota
-            )
+          return (
+            (
+              await refreshWithConfig<XaiQuotaState, NonNullable<XaiQuotaState['billing']>>(
+                XAI_CONFIG,
+                setXaiQuota,
+                getScopedQuotaState(XAI_CONFIG, baseQuotaStores.xaiQuota, row.raw)
+              )
+            )?.status === 'success'
           );
         default:
           return false;
@@ -5483,6 +5571,7 @@ export function AccountsPage() {
       setXaiQuota,
       t,
       authFilesRequestScope,
+      baseQuotaStores,
     ]
   );
 
@@ -5518,17 +5607,6 @@ export function AccountsPage() {
           );
           if (!isCurrentBatch()) return;
           const successCount = results.filter(Boolean).length;
-          results.forEach((succeeded, index) => {
-            if (!succeeded) return;
-            const row = taskPlan[index]?.item;
-            if (!row) return;
-            publishAccountCredentialMutationRevision({
-              connectionFingerprint,
-              provider: row.provider,
-              kind: 'quota',
-              credentialIdentity: row.selectionKey,
-            });
-          });
           showNotification(
             t('accounts.quota_refresh_result', {
               success: successCount,
@@ -5964,13 +6042,11 @@ export function AccountsPage() {
       ? t('accounts.status_all')
       : isAccountCodexStatusFilter(statusFilter)
         ? t(`auth_files.codex_status_filter_${statusFilter}`)
-        : t(`accounts.status_${statusFilter}`);
+        : statusFilter === 'unconfirmed'
+          ? t('accounts.metric_unconfirmed')
+          : t(`accounts.status_${statusFilter}`);
   const selectedPlanFilterLabel =
-    planFilter === 'all'
-      ? t('accounts.plan_all')
-      : planFilter === 'unknown'
-        ? t('auth_files.codex_plan_filter_unknown')
-        : planFilter;
+    planFilter === 'all' ? t('accounts.plan_all') : getPlanOptionLabel(rows, planFilter, t);
   const selectedQuotaFilterLabel =
     quotaBandFilter === 'all' ? t('accounts.quota_all') : t(`accounts.quota_${quotaBandFilter}`);
   const selectedOperationalFilterLabel = t(`accounts.operational_${effectiveOperationalFilter}`);
@@ -6234,6 +6310,7 @@ export function AccountsPage() {
           options={[
             { value: 'all', label: t('accounts.status_all') },
             { value: 'available', label: t('accounts.status_available') },
+            { value: 'unconfirmed', label: t('accounts.metric_unconfirmed') },
             { value: 'low', label: t('accounts.status_low') },
             { value: 'exhausted', label: t('accounts.status_exhausted') },
             { value: 'disabled', label: t('accounts.status_disabled') },
@@ -6270,14 +6347,8 @@ export function AccountsPage() {
       </div>
       <div className={styles.filterField}>
         <Select
-          value={planFilter}
-          options={[
-            { value: 'all', label: t('accounts.plan_all') },
-            ...planOptions.map((plan) => ({
-              value: plan,
-              label: plan === 'unknown' ? t('auth_files.codex_plan_filter_unknown') : plan,
-            })),
-          ]}
+          value={planFilterValue}
+          options={[{ value: 'all', label: t('accounts.plan_all') }, ...effectivePlanOptions]}
           onChange={setPlanFilter}
           ariaLabel={t('accounts.plan_filter')}
           triggerClassName={styles.toolbarSelectTrigger}
@@ -6825,33 +6896,30 @@ export function AccountsPage() {
             const accountHistory = accountHistoryByRowKey.get(row.selectionKey) ?? null;
             const quotaWindows =
               quotaDisplayWindowsByRowKey.get(row.selectionKey) ?? buildQuotaDisplayWindows(row);
+            const standardQuotaWindows = quotaWindows.filter(isStandardAccountQuotaListWindow);
             const quotaCooldown = quotaCooldownsByRowKey.get(row.selectionKey)?.[0] ?? null;
             const codexStatus = codexStatusBySelectionKey.get(row.selectionKey) ?? null;
             const item = buildAccountListItem(row, {
+              t,
               recommendation,
               quotaCooldown,
               codexStatus,
               quotaWindows,
               requestEvidence: requestEvidenceBySelectionKey.get(row.selectionKey),
             });
-            const antigravityQuotaMatrix = buildAntigravityQuotaMatrix(row, quotaWindows);
-            const displayQuotaWindows = antigravityQuotaMatrix ? [] : quotaWindows.slice(0, 2);
-            const displayedQuotaWindowCount = antigravityQuotaMatrix
-              ? antigravityQuotaMatrix.windowKeys.size
-              : displayQuotaWindows.length;
-            const hiddenQuotaWindowCount = Math.max(
-              0,
-              quotaWindows.length - displayedQuotaWindowCount
-            );
+            const quotaEmptyLabel =
+              quotaWindows.length > 0
+                ? t('accounts.quota_details_only')
+                : t('accounts.quota_source_none');
             const quotaWindowTitle =
-              quotaWindows
+              standardQuotaWindows
                 .map((window) => {
                   const label = window.groupLabel
                     ? `${window.groupLabel} ${window.label}`
                     : window.label;
                   return `${label}: ${formatPercent(window.remainingPercent)}`;
                 })
-                .join('\n') || t('accounts.quota_source_none');
+                .join('\n') || quotaEmptyLabel;
             const healthTitle = t(
               item.health.tooltipKey,
               formatQuotaResetTooltipParams(
@@ -6867,7 +6935,8 @@ export function AccountsPage() {
               t,
               accountHistory,
               accountHistoryLoading,
-              accountHistoryError
+              accountHistoryError,
+              i18n.language
             );
             const accountHistoryFootnote = accountHistoryError
               ? row.usage.success + row.usage.failure > 0
@@ -6879,6 +6948,22 @@ export function AccountsPage() {
                   ? t('accounts.history_syncing')
                   : null;
             const recentRequestCount = row.usage.success + row.usage.failure;
+            const accountHistoryRequestExactValue = accountHistoryMatched
+              ? formatHistoryNumber(accountHistory.total_requests, i18n.language)
+              : recentRequestCount > 0
+                ? formatHistoryNumber(recentRequestCount, i18n.language)
+                : '-';
+            const accountHistoryTokenExactValue = accountHistoryMatched
+              ? formatHistoryNumber(accountHistory.total_tokens, i18n.language)
+              : '-';
+            const accountHistoryCostExactValue = accountHistoryMatched
+              ? formatUsd(accountHistory.total_cost)
+              : '-';
+            const accountHistorySuccessExactValue = accountHistoryMatched
+              ? formatHistorySuccessRate(accountHistory.success_rate, 2)
+              : row.usage.successRate !== null
+                ? formatPercent(row.usage.successRate, 2)
+                : '-';
             const accountHistoryRequestValue = accountHistoryMatched
               ? formatCompactNumber(accountHistory.total_requests)
               : recentRequestCount > 0
@@ -6888,7 +6973,7 @@ export function AccountsPage() {
               ? formatCompactNumber(accountHistory.total_tokens)
               : '-';
             const accountHistoryCostValue = accountHistoryMatched
-              ? formatMoney(accountHistory.total_cost)
+              ? formatCompactUsd(accountHistory.total_cost)
               : '-';
             const accountHistorySuccessValue = accountHistoryMatched
               ? formatHistorySuccessRate(accountHistory.success_rate)
@@ -6915,8 +7000,13 @@ export function AccountsPage() {
                     <span className={styles.providerPill}>
                       {getProviderLabel(item.identity.provider, t)}
                     </span>
-                    {item.identity.planType ? (
-                      <span className={styles.accountMetaPill}>{item.identity.planType}</span>
+                    {item.identity.planPresentation ? (
+                      <span
+                        className={styles.accountMetaPill}
+                        title={item.identity.planPresentation.fullLabel}
+                      >
+                        {item.identity.planPresentation.shortLabel}
+                      </span>
                     ) : null}
                   </div>
                   <div className={styles.accountIdentityCopyLine}>
@@ -6999,138 +7089,130 @@ export function AccountsPage() {
                   />
                 </div>
 
-                <div className={styles.accountCardEvidence} title={accountHistoryTitle}>
-                  <div className={styles.accountHistoryGrid}>
-                    <div
-                      className={`${styles.accountHistoryMetric} ${styles.accountHistoryMetricRequests}`}
-                      aria-label={`${t('accounts.history_requests')} ${accountHistoryRequestValue}`}
-                      title={t('accounts.history_requests')}
-                    >
-                      <span className={styles.accountHistoryIcon}>
-                        <IconSend size={13} />
+                {renderAccountDetailTrigger({
+                  isSelectionMode,
+                  className: styles.accountCardEvidence,
+                  title: accountHistoryTitle,
+                  ariaLabel: `${t('accounts.list_header_historical_usage')}: ${accountHistoryTitle}. ${t(
+                    'accounts.open_detail',
+                    { name: row.fileName }
+                  )}: ${t('accounts.detail_tab_quota')}`,
+                  kind: 'history',
+                  onOpen: () => void openAccountDetail(row, 'quota'),
+                  children: (
+                    <>
+                      <span className={styles.accountHistoryGrid}>
+                        <span
+                          className={`${styles.accountHistoryMetric} ${styles.accountHistoryMetricRequests}`}
+                          aria-label={`${t('accounts.history_requests')}: ${accountHistoryRequestExactValue}`}
+                        >
+                          <span className={styles.accountHistoryIcon}>
+                            <IconSend size={13} />
+                          </span>
+                          <strong>{accountHistoryRequestValue}</strong>
+                        </span>
+                        <span
+                          className={`${styles.accountHistoryMetric} ${styles.accountHistoryMetricTokens}`}
+                          aria-label={`${t('accounts.history_tokens')}: ${accountHistoryTokenExactValue}`}
+                        >
+                          <span className={styles.accountHistoryIcon}>
+                            <IconBinary size={13} />
+                          </span>
+                          <strong>{accountHistoryTokenValue}</strong>
+                        </span>
+                        <span
+                          className={`${styles.accountHistoryMetric} ${styles.accountHistoryMetricCost}`}
+                          aria-label={`${t('accounts.history_cost')}: ${accountHistoryCostExactValue}`}
+                        >
+                          <span className={styles.accountHistoryIcon}>
+                            <IconDollarSign size={13} />
+                          </span>
+                          <strong>{accountHistoryCostValue}</strong>
+                        </span>
+                        <span
+                          className={`${styles.accountHistoryMetric} ${styles.accountHistoryMetricSuccess}`}
+                          aria-label={`${t('accounts.history_success')}: ${accountHistorySuccessExactValue}`}
+                        >
+                          <span className={styles.accountHistoryIcon}>
+                            <IconCheck size={13} />
+                          </span>
+                          <strong>{accountHistorySuccessValue}</strong>
+                        </span>
                       </span>
-                      <strong>{accountHistoryRequestValue}</strong>
-                    </div>
-                    <div
-                      className={`${styles.accountHistoryMetric} ${styles.accountHistoryMetricTokens}`}
-                      aria-label={`${t('accounts.history_tokens')} ${accountHistoryTokenValue}`}
-                      title={t('accounts.history_tokens')}
-                    >
-                      <span className={styles.accountHistoryIcon}>
-                        <IconBinary size={13} />
-                      </span>
-                      <strong>{accountHistoryTokenValue}</strong>
-                    </div>
-                    <div
-                      className={`${styles.accountHistoryMetric} ${styles.accountHistoryMetricCost}`}
-                      aria-label={`${t('accounts.history_cost')} ${accountHistoryCostValue}`}
-                      title={t('accounts.history_cost')}
-                    >
-                      <span className={styles.accountHistoryIcon}>
-                        <IconDollarSign size={13} />
-                      </span>
-                      <strong>{accountHistoryCostValue}</strong>
-                    </div>
-                    <div
-                      className={`${styles.accountHistoryMetric} ${styles.accountHistoryMetricSuccess}`}
-                      aria-label={`${t('accounts.history_success')} ${accountHistorySuccessValue}`}
-                      title={t('accounts.history_success')}
-                    >
-                      <span className={styles.accountHistoryIcon}>
-                        <IconCheck size={13} />
-                      </span>
-                      <strong>{accountHistorySuccessValue}</strong>
-                    </div>
-                  </div>
-                  {accountHistoryFootnote ? (
-                    <span className={styles.accountHistoryFootnote}>{accountHistoryFootnote}</span>
-                  ) : null}
-                </div>
+                      {accountHistoryFootnote ? (
+                        <span className={styles.accountHistoryFootnote}>
+                          {accountHistoryFootnote}
+                        </span>
+                      ) : null}
+                    </>
+                  ),
+                })}
 
-                <div className={styles.accountCardBusiness}>
-                  <div
-                    className={[
-                      styles.quotaWindowGrid,
-                      hiddenQuotaWindowCount > 0 ? styles.quotaWindowGridHasMore : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                    title={quotaWindowTitle}
-                  >
-                    {antigravityQuotaMatrix ? (
-                      <AccountQuotaMatrix
-                        accountKey={row.selectionKey}
-                        matrix={antigravityQuotaMatrix}
-                      />
-                    ) : displayQuotaWindows.length > 0 ? (
-                      displayQuotaWindows.map((window) => {
-                        const windowRemaining = window.remainingPercent;
-                        const windowWidth = Math.max(0, Math.min(100, windowRemaining ?? 0));
-                        const resetLabel =
-                          window.resetLabel && window.resetLabel !== '-' ? window.resetLabel : '';
-                        const resetDisplayLabel = formatQuotaResetDisplay(
-                          window.resetAtMs,
-                          resetLabel,
-                          i18n.language
-                        );
-                        const shortLabel = getQuotaWindowShortLabel(window);
-                        return (
-                          <div
-                            key={window.key}
-                            className={styles.quotaWindowCard}
-                            title={`${window.label}: ${formatPercent(windowRemaining)}`}
-                          >
-                            <div className={styles.quotaWindowPrimaryLine}>
-                              <span className={styles.quotaWindowSummary} title={window.label}>
-                                {shortLabel}
-                              </span>
-                              <div className={styles.quotaTrack} aria-hidden="true">
+                {renderAccountDetailTrigger({
+                  isSelectionMode,
+                  className: styles.accountCardBusiness,
+                  title: quotaWindowTitle,
+                  ariaLabel: `${t('accounts.list_header_quota')}: ${quotaWindowTitle}. ${t(
+                    'accounts.open_detail',
+                    { name: row.fileName }
+                  )}: ${t('accounts.detail_tab_quota')}`,
+                  kind: 'quota',
+                  onOpen: () => void openAccountDetail(row, 'quota'),
+                  children: (
+                    <span className={styles.quotaWindowGrid} title={quotaWindowTitle}>
+                      {standardQuotaWindows.length > 0 ? (
+                        standardQuotaWindows.map((window) => {
+                          const windowRemaining = window.remainingPercent;
+                          const windowWidth = Math.max(0, Math.min(100, windowRemaining ?? 0));
+                          const resetLabel =
+                            window.resetLabel && window.resetLabel !== '-' ? window.resetLabel : '';
+                          const resetDisplayLabel = formatQuotaResetDisplay(
+                            window.resetAtMs,
+                            resetLabel,
+                            i18n.language
+                          );
+                          const shortLabel = getQuotaWindowShortLabel(window);
+                          return (
+                            <span
+                              key={window.key}
+                              className={styles.quotaWindowCard}
+                              title={`${window.label}: ${formatPercent(windowRemaining)}`}
+                            >
+                              <span className={styles.quotaWindowPrimaryLine}>
+                                <span className={styles.quotaWindowSummary} title={window.label}>
+                                  {shortLabel}
+                                </span>
+                                <span className={styles.quotaTrack} aria-hidden="true">
+                                  <span
+                                    className={`${styles.quotaBar} ${getRemainingBarClass(row)}`}
+                                    style={{ width: `${windowWidth}%` }}
+                                  />
+                                </span>
+                                <strong className={styles.quotaWindowPercent}>
+                                  {windowRemaining !== null ? formatPercent(windowRemaining) : '-'}
+                                </strong>
                                 <span
-                                  className={`${styles.quotaBar} ${getRemainingBarClass(row)}`}
-                                  style={{ width: `${windowWidth}%` }}
-                                />
-                              </div>
-                              <strong className={styles.quotaWindowPercent}>
-                                {windowRemaining !== null ? formatPercent(windowRemaining) : '-'}
-                              </strong>
-                              <span
-                                className={styles.quotaResetMeta}
-                                title={
-                                  resetDisplayLabel !== '-'
-                                    ? `${t('accounts.col_reset')}: ${resetDisplayLabel}`
-                                    : ''
-                                }
-                              >
-                                {resetDisplayLabel}
+                                  className={styles.quotaResetMeta}
+                                  title={
+                                    resetDisplayLabel !== '-'
+                                      ? `${t('accounts.col_reset')}: ${resetDisplayLabel}`
+                                      : ''
+                                  }
+                                >
+                                  {resetDisplayLabel}
+                                </span>
                               </span>
-                            </div>
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <span className={styles.quotaEmptyState} data-account-quota-empty="true">
-                        {t('accounts.quota_source_none')}
-                      </span>
-                    )}
-                    {hiddenQuotaWindowCount > 0 ? (
-                      <button
-                        type="button"
-                        className={styles.quotaMoreButton}
-                        title={t('accounts.quota_more_windows_title', {
-                          count: hiddenQuotaWindowCount,
-                        })}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void openAccountDetail(row, 'quota');
-                        }}
-                      >
-                        {t('accounts.quota_more_windows', {
-                          count: hiddenQuotaWindowCount,
-                        })}
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
+                            </span>
+                          );
+                        })
+                      ) : (
+                        <span className={styles.quotaEmptyState} data-account-quota-empty="true">
+                          {quotaEmptyLabel}
+                        </span>
+                      )}
+                    </span>
+                  ),
+                })}
 
                 <div className={styles.accountCardRecommendation}>
                   {renderRowActions(row, item.health.status === 'reauth')}
@@ -7223,6 +7305,7 @@ export function AccountsPage() {
     const rowEventsRecentFailure = hasMatchingDetailEvents ? detailEventsRecentFailure : null;
     const rowEventsTotalCount = hasMatchingDetailEvents ? detailEventsTotalCount : 0;
     const detailView = buildAccountDetailViewModel(selectedRow, {
+      t,
       recommendation: recommendationBySelectionKey.get(selectedRow.selectionKey) ?? null,
       quotaCooldown: selectedQuotaCooldown,
       codexStatus: selectedCodexStatus,
@@ -7422,7 +7505,11 @@ export function AccountsPage() {
                 {getDisplayAccount(selectedRow)}
               </strong>
               <span className={styles.drawerTitleMeta}>
-                {getProviderLabel(selectedRow.provider, t)} · {selectedRow.planType ?? '-'} ·{' '}
+                {getProviderLabel(selectedRow.provider, t)} ·{' '}
+                <span title={detailView.identity.planPresentation?.fullLabel}>
+                  {detailView.identity.planPresentation?.shortLabel ?? '-'}
+                </span>{' '}
+                ·{' '}
                 <button
                   type="button"
                   className={styles.drawerFileNameCopy}
