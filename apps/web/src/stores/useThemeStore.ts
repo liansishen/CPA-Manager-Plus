@@ -9,7 +9,7 @@ import type { Theme } from '@/types';
 import { STORAGE_KEY_THEME } from '@/utils/constants';
 
 type ResolvedTheme = 'light' | 'dark';
-type AppliedTheme = ResolvedTheme | 'white';
+type AppliedTheme = ResolvedTheme | 'white' | 'claude';
 
 interface ThemeState {
   theme: Theme;
@@ -20,7 +20,7 @@ interface ThemeState {
 }
 
 const getSystemTheme = (): ResolvedTheme => {
-  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+  if (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
     return 'dark';
   }
   return 'light';
@@ -35,7 +35,7 @@ const normalizeResolvedTheme = (theme: AppliedTheme): ResolvedTheme => {
 };
 
 const isTheme = (theme: unknown): theme is Theme => {
-  return theme === 'auto' || theme === 'white' || theme === 'dark';
+  return theme === 'auto' || theme === 'white' || theme === 'dark' || theme === 'claude';
 };
 
 const resolveTheme = (theme: Theme): AppliedTheme => {
@@ -44,6 +44,9 @@ const resolveTheme = (theme: Theme): AppliedTheme => {
   }
   if (theme === 'white') {
     return 'white';
+  }
+  if (theme === 'claude') {
+    return 'claude';
   }
   return theme;
 };
@@ -56,6 +59,11 @@ const applyTheme = (resolved: AppliedTheme) => {
 
   if (resolved === 'white') {
     document.documentElement.setAttribute('data-theme', 'white');
+    return;
+  }
+
+  if (resolved === 'claude') {
+    document.documentElement.setAttribute('data-theme', 'claude');
     return;
   }
 
@@ -79,7 +87,7 @@ export const useThemeStore = create<ThemeState>()(
 
       cycleTheme: () => {
         const { theme, setTheme } = get();
-        const order: Theme[] = ['auto', 'white', 'dark'];
+        const order: Theme[] = ['auto', 'white', 'dark', 'claude'];
         const currentIndex = order.indexOf(theme);
         const nextTheme = order[(currentIndex + 1) % order.length];
         setTheme(nextTheme);

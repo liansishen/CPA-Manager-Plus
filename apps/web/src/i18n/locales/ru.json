@@ -4426,7 +4426,8 @@
     "switch": "Тема",
     "white": "Светлая",
     "dark": "Тёмная",
-    "auto": "Авто"
+    "auto": "Авто",
+    "claude": "Claude"
   },
   "visual_effects": {
     "switch": "Визуальные эффекты",

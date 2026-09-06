@@ -4423,7 +4423,8 @@
     "switch": "主題",
     "white": "明亮",
     "dark": "黑夜",
-    "auto": "自動"
+    "auto": "自動",
+    "claude": "Claude"
   },
   "visual_effects": {
     "switch": "視覺效果",

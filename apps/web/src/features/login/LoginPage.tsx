@@ -11,6 +11,7 @@ import {
   IconInfo,
   IconKey,
   IconLanguages,
+  IconClaude,
   IconMoon,
   IconShield,
   IconSun,
@@ -526,7 +527,13 @@ export function LoginPage() {
           aria-label={t('theme.switch')}
           title={t('theme.switch')}
         >
-          {theme === 'dark' ? <IconMoon size={17} /> : <IconSun size={17} />}
+          {theme === 'dark' ? (
+            <IconMoon size={17} />
+          ) : theme === 'claude' ? (
+            <IconClaude size={17} />
+          ) : (
+            <IconSun size={17} />
+          )}
         </button>
         <div className={styles.languageMenu} ref={languageMenuRef}>
           <button

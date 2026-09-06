@@ -784,3 +784,15 @@ export function IconCalendar({ size = 20, ...props }: IconProps) {
     </svg>
   );
 }
+
+export function IconClaude({ size = 20, ...props }: IconProps) {
+  return (
+    <svg {...baseSvgProps} width={size} height={size} {...props}>
+      <path d="M12 3v18" />
+      <path d="M3 12h18" />
+      <path d="m5.64 5.64 12.72 12.72" />
+      <path d="m18.36 5.64-12.72 12.72" />
+      <circle cx="12" cy="12" r="2.5" />
+    </svg>
+  );
+}
