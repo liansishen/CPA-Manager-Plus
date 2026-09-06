@@ -10,10 +10,16 @@ import {
   useNotificationStore,
   useOpenAIEditDraftStore,
 } from '@/stores';
-import { entriesToModels, modelsToEntries } from '@/components/ui/modelInputListUtils';
+import {
+  cloneModelEntry,
+  entriesToModels,
+  hasInvalidThinkingLevels,
+  modelsToEntries,
+} from '@/components/ui/modelInputListUtils';
 import {
   coolingPolicyFromOverride,
   coolingPolicyToOverride,
+  toCommittedModelThinkingSnapshot,
   type ApiKeyEntry,
   type OpenAIProviderConfig,
 } from '@/types';
@@ -21,7 +27,7 @@ import type { ModelInfo } from '@/utils/models';
 import { normalizeAuthIndex } from '@/utils/authIndex';
 import { buildHeaderObject, headersToEntries, normalizeHeaderEntries } from '@/utils/headers';
 import { areKeyValueEntriesEqual, areModelEntriesEqual } from '@/utils/compare';
-import { buildApiKeyEntry } from '@/components/providers/utils';
+import { buildApiKeyEntry, toCommittedOpenAIProviderSnapshot } from '@/components/providers/utils';
 import { usageServiceApi } from '@/services/api/usageService';
 import {
   buildEmptyProviderQuota,
@@ -103,7 +109,7 @@ const normalizeModelEntries = (entries: ModelEntry[]) =>
       alias = '';
     }
     if (!name && !alias) return acc;
-    acc.push({ ...entry, name, alias });
+    acc.push(cloneModelEntry(entry, { name, alias }));
     return acc;
   }, []);
 
@@ -152,7 +158,7 @@ const buildOpenAIBaseline = (form: OpenAIFormState, testModel: string): OpenAIEd
   disableCooling: form.disableCooling,
   headers: normalizeHeaderEntries(form.headers),
   apiKeyEntries: normalizeApiKeyEntries(form.apiKeyEntries),
-  models: normalizeModelEntries(form.modelEntries),
+  models: normalizeModelEntries(form.modelEntries).map(toCommittedModelThinkingSnapshot),
   testModel: String(testModel ?? '').trim(),
 });
 
@@ -433,11 +439,13 @@ export function AiProvidersOpenAIEditLayout() {
         prev.modelEntries.forEach((entry) => {
           const name = entry.name.trim();
           if (!name) return;
-          mergedMap.set(name.toLowerCase(), {
-            ...entry,
-            name,
-            alias: entry.alias?.trim() || '',
-          });
+          mergedMap.set(
+            name.toLowerCase(),
+            cloneModelEntry(entry, {
+              name,
+              alias: entry.alias?.trim() || '',
+            })
+          );
         });
 
         selectedModels.forEach((model) => {
@@ -542,6 +550,7 @@ export function AiProvidersOpenAIEditLayout() {
       return;
     }
     if (hasInvalidWeight) return;
+    if (hasInvalidThinkingLevels(form.modelEntries)) return;
 
     const hasInvalidQuota = form.apiKeyEntries.some((entry) => isProviderQuotaInvalid(entry.quota));
     if (hasInvalidQuota) {
@@ -608,11 +617,12 @@ export function AiProvidersOpenAIEditLayout() {
       if (resolvedTestModel) payload.testModel = resolvedTestModel;
       const models = entriesToModels(form.modelEntries);
       if (models.length) payload.models = models;
+      const committedPayload = toCommittedOpenAIProviderSnapshot(payload);
 
       const nextList =
         editIndex !== null
-          ? providers.map((item, idx) => (idx === editIndex ? payload : item))
-          : [...providers, payload];
+          ? providers.map((item, idx) => (idx === editIndex ? committedPayload : item))
+          : [...providers, committedPayload];
 
       if (editIndex !== null) {
         await providersApi.updateOpenAIProvider(providers[editIndex].name, editIndex, payload);
@@ -640,13 +650,20 @@ export function AiProvidersOpenAIEditLayout() {
 
       let syncedProviders = nextList;
       try {
-        syncedProviders = await providersApi.getOpenAIProviders();
+        syncedProviders = (await providersApi.getOpenAIProviders()).map(
+          toCommittedOpenAIProviderSnapshot
+        );
       } catch {
         // 保存成功后刷新失败时，回退到本地计算结果，避免页面数据为空或回退
       }
 
       setProviders(syncedProviders);
       updateConfigValue('openai-compatibility', syncedProviders);
+      const committedForm = {
+        ...form,
+        modelEntries: form.modelEntries.map(toCommittedModelThinkingSnapshot),
+      };
+      setForm(committedForm);
       showNotification(
         editIndex !== null
           ? t('notification.openai_provider_updated')
@@ -654,7 +671,7 @@ export function AiProvidersOpenAIEditLayout() {
         'success'
       );
       allowNextNavigation();
-      setDraftBaseline(draftKey, buildOpenAIBaseline(form, testModel));
+      setDraftBaseline(draftKey, buildOpenAIBaseline(committedForm, testModel));
       handleBack();
     } catch (err: unknown) {
       showNotification(`${t('notification.update_failed')}: ${getErrorMessage(err)}`, 'error');
@@ -670,6 +687,7 @@ export function AiProvidersOpenAIEditLayout() {
     initialData?.disabled,
     providers,
     setDraftBaseline,
+    setForm,
     showNotification,
     t,
     testModel,
