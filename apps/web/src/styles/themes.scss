@@ -481,6 +481,181 @@
   --shadow-lg: none;
 }
 
+[data-theme='claude'] {
+  // Claude 经典温润纸质底色与柔和渐变
+  --app-bg: #fbfaf7;
+  --app-bg-gradient: linear-gradient(135deg, #fdfcf9 0%, #f7f4ed 50%, #f0ebd9 100%);
+  --app-bg-blob-1-start: #f4d3c4;
+  --app-bg-blob-1-end: #fae7dd;
+  --app-bg-blob-2-start: #faebd7;
+  --app-bg-blob-2-end: #fdf5ea;
+  --app-bg-blob-1-opacity: 0.6;
+  --app-bg-blob-2-opacity: 0.55;
+  --app-bg-blob-blur: 70px;
+
+  // 卡片表面与毛玻璃
+  --app-surface: rgba(255, 255, 255, 0.9);
+  --app-surface-strong: #ffffff;
+  --app-surface-muted: rgba(247, 244, 237, 0.78);
+  --app-border: #e8e3d8;
+  --app-border-strong: #ded6c6;
+  --app-shadow: 0 1px 3px rgba(60, 45, 30, 0.04), 0 1px 2px rgba(60, 45, 30, 0.03);
+  --app-shadow-soft: 0 4px 16px -2px rgba(60, 45, 30, 0.05);
+
+  // Claude 暖墨文字（非冷灰，具浓郁书卷质感）
+  --app-text-primary: #2b2520;
+  --app-text-regular: #594f47;
+  --app-text-muted: #8c827a;
+
+  // Claude 标志性陶土红/赤陶色主色
+  --app-accent: #d97757;
+  --app-accent-soft: rgba(217, 119, 87, 0.12);
+  --surface-subtle: #f8f5ee;
+  --surface-subtle-hover: #f1ecdf;
+  --surface-subtle-strong: #ebe4d3;
+  --border-subtle: #e8e3d8;
+  --border-subtle-dashed: #ded6c6;
+
+  // 侧边栏
+  --sidebar-bg-color: rgba(250, 247, 242, 0.76);
+  --sidebar-text-color: var(--app-text-regular);
+  --sidebar-active-text-color: var(--app-text-primary);
+  --sidebar-hover-bg-color: rgba(217, 119, 87, 0.08);
+  --sidebar-logo-bg-color: rgba(250, 247, 242, 0.55);
+  --sidebar-shadow: 2px 0 16px rgba(70, 50, 30, 0.06);
+
+  // 玻璃效果
+  --primary-gradient: linear-gradient(135deg, #e08365 0%, #d97757 100%);
+  --glass-bg: rgba(255, 255, 255, 0.88);
+  --glass-bg-secondary: rgba(250, 247, 242, 0.72);
+  --glass-border: rgba(232, 227, 216, 0.85);
+  --glass-shadow: 0 4px 20px -2px rgba(70, 50, 30, 0.05);
+
+  // 输入框
+  --app-input-bg: rgba(255, 255, 255, 0.85);
+  --app-input-bg-focus: #ffffff;
+  --app-input-border: var(--app-border-strong);
+  --app-input-border-focus: var(--app-accent);
+
+  // 背景层级
+  --bg-secondary: var(--app-bg);
+  --bg-primary: var(--app-surface);
+  --bg-tertiary: var(--app-surface-muted);
+  --bg-hover: var(--app-accent-soft);
+  --bg-quinary: #fdfbf7;
+  --bg-error-light: #fef2f2;
+  --floating-surface: #ffffff;
+  --floating-border: var(--app-border-strong);
+  --floating-shadow: 0 8px 30px -4px rgba(60, 45, 30, 0.12);
+
+  // 文字变量
+  --text-primary: var(--app-text-primary);
+  --text-secondary: var(--app-text-regular);
+  --text-tertiary: var(--app-text-muted);
+  --text-quaternary: #b5aba2;
+  --text-muted: var(--app-text-muted);
+
+  // 边框变量
+  --border-color: var(--app-border);
+  --border-secondary: #f0ebe0;
+  --border-primary: var(--app-border-strong);
+  --border-hover: rgba(217, 119, 87, 0.38);
+
+  // 主题核心色系 (Claude 赤陶暖橙色系)
+  --color-primary: #d97757;
+  --color-primary-light-3: #e68d71;
+  --color-primary-light-5: #f0aa95;
+  --color-primary-light-7: #f8cdbf;
+  --color-primary-light-8: #fbe3db;
+  --color-primary-light-9: #fdf3ef;
+  --color-primary-dark-2: #c26546;
+
+  // 辅助色系（与暖色基调融合的自然人文调）
+  --color-success: #2e7d52;
+  --color-success-light-3: #439669;
+  --color-success-light-5: #6db38d;
+  --color-success-light-7: #a6d6bc;
+  --color-success-light-8: #d1ecde;
+  --color-success-light-9: #edf7f0;
+  --color-success-dark-2: #246341;
+
+  --color-warning: #c97a16;
+  --color-warning-light-3: #d98e32;
+  --color-warning-light-5: #e8ab5c;
+  --color-warning-light-7: #f3ce95;
+  --color-warning-light-8: #fae7cb;
+  --color-warning-light-9: #fdf5ea;
+  --color-warning-dark-2: #a5610d;
+
+  --color-danger: #c94a4a;
+  --color-danger-light-3: #d96868;
+  --color-danger-light-5: #e88f8f;
+  --color-danger-light-7: #f3bcbc;
+  --color-danger-light-8: #fadde0;
+  --color-danger-light-9: #fdf2f2;
+  --color-danger-dark-2: #a83838;
+
+  --color-error: var(--color-danger);
+  --color-error-light-9: var(--color-danger-light-9);
+  --color-error-dark-2: var(--color-danger-dark-2);
+
+  --color-info: #5c6b7d;
+  --color-info-light-3: #778596;
+  --color-info-light-5: #9ba7b5;
+  --color-info-light-7: #c5ced7;
+  --color-info-light-8: #e2e7ec;
+  --color-info-light-9: #f0f4f8;
+  --color-info-dark-2: #465362;
+
+  // 数据色阶 (将 blue 阶梯设为 Claude 赤陶色，使所有依赖 data-blue 的页面完美呈现 Claude 风格)
+  --data-blue-base: #d97757;
+  --data-blue-dark-2: #c26546;
+  --data-blue-light-3: #e68d71;
+  --data-blue-light-5: #f0aa95;
+  --data-blue-light-7: #f8cdbf;
+  --data-blue-light-8: #fbe3db;
+  --data-blue-light-9: #fdf3ef;
+
+  // 徽章与标签状态
+  --data-badge-success-text: #246341;
+  --data-badge-success-bg: #edf7f0;
+  --data-badge-success-border: #b8e0c7;
+  --data-badge-warning-text: #a5610d;
+  --data-badge-warning-bg: #fdf5ea;
+  --data-badge-warning-border: #f8dba8;
+  --data-badge-danger-text: #a83838;
+  --data-badge-danger-bg: #fdf2f2;
+  --data-badge-danger-border: #f7bebe;
+  --data-badge-info-text: #c26546;
+  --data-badge-info-bg: #fdf3ef;
+  --data-badge-info-border: #f8cdbf;
+  --data-badge-neutral-text: #594f47;
+  --data-badge-neutral-bg: #f4f0e8;
+  --data-badge-neutral-border: #ded6c6;
+
+  // 强调交互状态
+  --primary-color: var(--color-primary);
+  --primary-hover: var(--color-primary-light-3);
+  --primary-active: var(--color-primary-dark-2);
+  --primary-contrast: #ffffff;
+  --primary-solid: var(--color-primary);
+  --primary-solid-hover: var(--color-primary-light-3);
+  --primary-solid-active: var(--color-primary-dark-2);
+  --primary-soft: var(--color-primary-light-8);
+  --primary-subtle: var(--color-primary-light-9);
+  --primary-ring: rgba(217, 119, 87, 0.28);
+  --focus-bg: color-mix(in srgb, var(--primary-color) 6%, var(--bg-primary));
+  --focus-border: color-mix(in srgb, var(--primary-color) 32%, var(--border-color));
+  --focus-inset: color-mix(in srgb, var(--primary-color) 22%, transparent);
+  --focus-text: var(--primary-active);
+
+  --count-badge-bg: var(--data-badge-info-bg);
+  --count-badge-text: var(--data-badge-info-text);
+  --shadow: 0 1px 3px rgba(60, 45, 30, 0.05);
+  --shadow-lg: 0 10px 25px -5px rgba(60, 45, 30, 0.08);
+  --accent-tertiary: var(--app-accent-soft);
+}
+
 @media (max-width: 768px),
   (prefers-reduced-motion: reduce),
   (prefers-reduced-transparency: reduce) {

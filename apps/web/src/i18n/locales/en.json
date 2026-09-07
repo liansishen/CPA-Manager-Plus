@@ -4454,7 +4454,8 @@
     "switch": "Theme",
     "white": "Light",
     "dark": "Dark",
-    "auto": "Auto"
+    "auto": "Auto",
+    "claude": "Claude"
   },
   "visual_effects": {
     "switch": "Visual effects",

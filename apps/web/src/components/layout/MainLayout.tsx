@@ -145,6 +145,15 @@ const headerIcons = {
       <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z" />
     </svg>
   ),
+  claude: (
+    <svg {...headerIconProps}>
+      <path d="M12 3v18" />
+      <path d="M3 12h18" />
+      <path d="m5.64 5.64 12.72 12.72" />
+      <path d="m18.36 5.64-12.72 12.72" />
+      <circle cx="12" cy="12" r="2.5" />
+    </svg>
+  ),
   autoTheme: (
     <svg {...headerIconProps}>
       <rect x="4" y="5" width="16" height="11" rx="2" />
@@ -190,6 +199,7 @@ const THEME_OPTIONS: Array<{
   { key: 'auto', labelKey: 'theme.auto', icon: headerIcons.autoTheme },
   { key: 'white', labelKey: 'theme.white', icon: headerIcons.sun },
   { key: 'dark', labelKey: 'theme.dark', icon: headerIcons.moon },
+  { key: 'claude', labelKey: 'theme.claude', icon: headerIcons.claude },
 ];
 
 const VISUAL_EFFECTS_OPTIONS: Array<{
@@ -823,7 +833,9 @@ function MainLayoutContent({ routeBase = '', demoMode = false }: MainLayoutProps
                   ? headerIcons.autoTheme
                   : theme === 'dark'
                     ? headerIcons.moon
-                    : headerIcons.sun}
+                    : theme === 'claude'
+                      ? headerIcons.claude
+                      : headerIcons.sun}
               </Button>
               {themeMenuOpen && (
                 <div

@@ -241,7 +241,8 @@
   gap: 2px;
 }
 
-[data-theme='white'] {
+[data-theme='white'],
+[data-theme='claude'] {
   .language-menu-popover,
   .theme-menu-popover,
   .visual-effects-menu-popover {
@@ -643,6 +644,11 @@
   [data-theme='dark'] {
     --sidebar-bg-color: rgba(24, 28, 40, 0.92);
     --sidebar-logo-bg-color: rgba(24, 28, 40, 0.86);
+  }
+
+  [data-theme='claude'] {
+    --sidebar-bg-color: rgba(251, 250, 247, 0.96);
+    --sidebar-logo-bg-color: rgba(247, 244, 237, 0.92);
   }
 
   .app-shell,
