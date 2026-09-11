@@ -124,6 +124,9 @@ const buildCustomQuotaTarget = (
   };
 };
 
+export const isCustomQuotaTarget = (target: MonitoringAccountQuotaTarget) =>
+  Boolean(target.customQuotaBindingKey || target.customQuotaBinding);
+
 export const buildMonitoringAccountQuotaTargetsByRowId = (
   rows: MonitoringAccountRow[],
   authStateByRowId: Map<string, MonitoringAccountAuthState>,

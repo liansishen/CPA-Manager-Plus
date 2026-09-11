@@ -4,6 +4,7 @@ import {
   buildAccountQuotaUsageRanges,
   buildAccountQuotaWindowDefinitions,
 } from './accountQuotaWindowDefinitions';
+import type { AccountQuotaCycleDefinition } from './accountQuotaWindowDefinitions';
 
 const makeWindow = (overrides: Partial<AccountQuotaDisplayWindow>): AccountQuotaDisplayWindow => ({
   key: 'five-hour',
@@ -20,6 +21,7 @@ const makeWindow = (overrides: Partial<AccountQuotaDisplayWindow>): AccountQuota
   source: 'codex',
   observationSource: 'api_query',
   observedAtMs: 30_000_000,
+  quotaProgressObservedAtMs: 30_000_000,
   windowMode: 'fixed',
   cycleStartMs: 20_000_000,
   cycleEndMs: 38_000_000,
@@ -27,7 +29,34 @@ const makeWindow = (overrides: Partial<AccountQuotaDisplayWindow>): AccountQuota
   ...overrides,
 });
 
+const makeCycle = (
+  overrides: Partial<AccountQuotaCycleDefinition> = {}
+): AccountQuotaCycleDefinition => ({
+  id: 2,
+  activationId: 1,
+  state: 'active',
+  scheduledStartMs: 20_000_000,
+  scheduledEndMs: 38_000_000,
+  actualStartMs: 20_000_000,
+  actualEndMs: null,
+  durationSeconds: 18_000,
+  boundaryAccuracy: 'exact',
+  endReason: '',
+  parentCycleId: null,
+  forecastEligible: true,
+  ...overrides,
+});
+
 describe('accountQuotaWindowDefinitions', () => {
+  it('propagates quota progress provenance separately from generic observation time', () => {
+    const [definition] = buildAccountQuotaWindowDefinitions([
+      makeWindow({ observedAtMs: 30_000_000, quotaProgressObservedAtMs: 20_000_000 }),
+    ]);
+
+    expect(definition.observedAtMs).toBe(30_000_000);
+    expect(definition.quotaProgressObservedAtMs).toBe(20_000_000);
+  });
+
   it('builds separate current and previous half-open ranges for fixed windows', () => {
     const [definition] = buildAccountQuotaWindowDefinitions([makeWindow({})], 30_000_000);
     expect(buildAccountQuotaUsageRanges(definition, 30_000_000)).toEqual([
@@ -80,6 +109,113 @@ describe('accountQuotaWindowDefinitions', () => {
 
     expect(buildAccountQuotaUsageRanges(definition, 30_000_000)).toEqual([
       { period: 'current', fromMs: 20_000_000, toMs: 30_000_000 },
+      { period: 'previous', fromMs: 8_000_000, toMs: 20_000_000 },
+    ]);
+  });
+
+  it('keeps a reliable previous cycle when the current cycle is provisional', () => {
+    const [definition] = buildAccountQuotaWindowDefinitions([makeWindow({})], 30_000_000);
+    definition.boundaryAccuracy = 'unknown';
+    definition.currentCycle = makeCycle({
+      state: 'provisional',
+      boundaryAccuracy: 'unknown',
+    });
+    definition.previousCycle = makeCycle({
+      id: 1,
+      state: 'closed',
+      scheduledStartMs: 2_000_000,
+      scheduledEndMs: 20_000_000,
+      actualStartMs: 8_000,
+      actualEndMs: 20_000,
+      boundaryAccuracy: 'exact',
+      endReason: 'scheduled',
+      forecastEligible: false,
+    });
+
+    expect(buildAccountQuotaUsageRanges(definition, 30_000_000)).toEqual([
+      { period: 'previous', fromMs: 8_000, toMs: 20_000 },
+    ]);
+  });
+
+  it('keeps reliable previous usage but rejects a stale lifecycle current cycle', () => {
+    const [definition] = buildAccountQuotaWindowDefinitions([makeWindow({})], 30_000);
+    definition.stale = true;
+    definition.availability = 'active';
+    definition.currentCycle = makeCycle({
+      state: 'active',
+      scheduledStartMs: 10_000,
+      scheduledEndMs: 20_000,
+      actualStartMs: 10_000,
+      boundaryAccuracy: 'exact',
+    });
+    definition.previousCycle = makeCycle({
+      id: 1,
+      state: 'closed',
+      scheduledStartMs: 1_000,
+      scheduledEndMs: 8_000,
+      actualStartMs: 1_000,
+      actualEndMs: 8_000,
+      boundaryAccuracy: 'exact',
+      endReason: 'scheduled',
+      forecastEligible: false,
+    });
+
+    expect(buildAccountQuotaUsageRanges(definition, 30_000)).toEqual([
+      { period: 'previous', fromMs: 1_000, toMs: 8_000 },
+    ]);
+  });
+
+  it('rejects both lifecycle ranges when both cycles have unreliable boundaries', () => {
+    const [definition] = buildAccountQuotaWindowDefinitions([makeWindow({})], 30_000_000);
+    definition.boundaryAccuracy = 'unknown';
+    definition.currentCycle = makeCycle({
+      state: 'provisional',
+      boundaryAccuracy: 'unknown',
+    });
+    definition.previousCycle = makeCycle({
+      id: 1,
+      state: 'closed',
+      actualStartMs: 8_000,
+      actualEndMs: 20_000,
+      boundaryAccuracy: 'estimated',
+    });
+
+    expect(buildAccountQuotaUsageRanges(definition, 30_000_000)).toEqual([]);
+  });
+
+  it('keeps an observation gap outside both lifecycle usage ranges', () => {
+    const [definition] = buildAccountQuotaWindowDefinitions([makeWindow({})], 30_000_000);
+    definition.currentCycle = {
+      id: 2,
+      activationId: 1,
+      state: 'active',
+      scheduledStartMs: 25_000_000,
+      scheduledEndMs: 38_000_000,
+      actualStartMs: 25_000_000,
+      actualEndMs: null,
+      durationSeconds: 18_000,
+      boundaryAccuracy: 'exact',
+      endReason: '',
+      parentCycleId: null,
+      forecastEligible: true,
+    };
+    definition.previousCycle = {
+      id: 1,
+      activationId: 1,
+      state: 'closed',
+      scheduledStartMs: 2_000_000,
+      scheduledEndMs: 20_000_000,
+      actualStartMs: 8_000_000,
+      actualEndMs: 20_000_000,
+      durationSeconds: 18_000,
+      boundaryAccuracy: 'exact',
+      endReason: 'scheduled',
+      parentCycleId: null,
+      forecastEligible: true,
+    };
+
+    expect(buildAccountQuotaUsageRanges(definition, 30_000_000)).toEqual([
+      { period: 'current', fromMs: 25_000_000, toMs: 30_000_000 },
       { period: 'previous', fromMs: 8_000_000, toMs: 20_000_000 },
     ]);
   });

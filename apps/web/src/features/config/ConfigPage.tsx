@@ -1,4 +1,13 @@
-import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import type { ReactCodeMirrorRef } from '@uiw/react-codemirror';
@@ -15,6 +24,7 @@ import {
   IconSearch,
 } from '@/components/ui/icons';
 import { VisualConfigEditor } from '@/components/config/VisualConfigEditor';
+import type { ApiKeyMutation } from '@/components/config/ApiKeysCardEditor';
 import { DiffModal } from '@/components/config/DiffModal';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useVisualConfig } from '@/hooks/useVisualConfig';
@@ -26,6 +36,7 @@ import {
   useUsageServiceStore,
 } from '@/stores';
 import { configFileApi } from '@/services/api/configFile';
+import { apiKeysApi } from '@/services/api/apiKeys';
 import {
   getUsageServiceErrorCode,
   isUsageServiceId,
@@ -118,17 +129,23 @@ export function resolveManagerCPAConnection({
   const savedConnection = managerConfig?.cpaConnection;
   const nextCPABaseUrl =
     cpaBaseUrlInput === undefined ? savedConnection?.cpaBaseUrl || '' : cpaBaseUrlInput.trim();
-  const nextManagementKey = managementKeyInput.trim() || savedConnection?.managementKey || '';
+  const nextManagementKey = managementKeyInput.trim();
+  const managementKeyConfigured = Boolean(
+    savedConnection?.managementKeyConfigured || savedConnection?.managementKey
+  );
+  const sanitizedConnection: ManagerConfig['cpaConnection'] = {
+    cpaBaseUrl: nextCPABaseUrl,
+    managementKeyConfigured,
+  };
 
   if (panelHostedByUsageService === true) {
     return {
-      ...(savedConnection ?? {}),
-      cpaBaseUrl: nextCPABaseUrl,
-      managementKey: nextManagementKey,
+      ...sanitizedConnection,
+      ...(nextManagementKey ? { managementKey: nextManagementKey } : {}),
     };
   }
 
-  return savedConnection ?? { cpaBaseUrl: '', managementKey: '' };
+  return sanitizedConnection;
 }
 
 function parseManagerPositiveIntegerInput(value: string): number | null {
@@ -139,7 +156,10 @@ function parseManagerPositiveIntegerInput(value: string): number | null {
   return Math.floor(parsed);
 }
 
-function resolveManagerPositiveIntegerBaseline(value: number | undefined, fallback: number): number {
+function resolveManagerPositiveIntegerBaseline(
+  value: number | undefined,
+  fallback: number
+): number {
   return Number.isFinite(value) && value && value > 0 ? Math.floor(value) : fallback;
 }
 
@@ -182,9 +202,7 @@ export function resolveManagerFormDirty({
   if (savedCPABase !== nextCPABase) return true;
 
   const nextManagementKey = managementKeyInput.trim();
-  if (nextManagementKey && nextManagementKey !== (savedConnection?.managementKey || '')) {
-    return true;
-  }
+  if (nextManagementKey) return true;
 
   if (requestMonitoringEnabled !== (savedCollector.enabled !== false)) return true;
   const savedCollectorMode =
@@ -214,6 +232,83 @@ export function resolveManagerFormDirty({
 
 function isManagerAuthErrorCode(code: string): boolean {
   return code === 'invalid_admin_key' || code === 'invalid_management_key';
+}
+
+// API-key persistence is allowed alongside ordinary Visual drafts, but not alongside
+// an unsaved Source draft or another operation that could write the same config state.
+// eslint-disable-next-line react-refresh/only-export-components
+export function resolveApiKeyOperationBlockReason({
+  sourceDirty,
+  saving,
+  managerSaving,
+  apiKeyMutationInFlight,
+  diffModalOpen,
+}: {
+  sourceDirty: boolean;
+  saving: boolean;
+  managerSaving: boolean;
+  apiKeyMutationInFlight: boolean;
+  diffModalOpen: boolean;
+}): 'source_config_dirty' | 'api_key_operation_busy' | null {
+  if (saving || managerSaving || apiKeyMutationInFlight || diffModalOpen) {
+    return 'api_key_operation_busy';
+  }
+  if (sourceDirty) return 'source_config_dirty';
+  return null;
+}
+
+// CPA appends the replacement value when the old value is missing. Keep replace
+// semantics explicit at the UI boundary so a stale edit cannot become a create.
+export type ApiKeyReplacePreflightResult =
+  | {
+      ok: true;
+      canonicalOldApiKey: string;
+    }
+  | {
+      ok: false;
+      reason: 'api_key_stale' | 'api_key_duplicate' | 'api_key_ambiguous';
+    };
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function resolveApiKeyReplacePreflight({
+  currentKeys,
+  oldApiKey,
+  newApiKey,
+}: {
+  currentKeys: string[];
+  oldApiKey: string;
+  newApiKey: string;
+}): ApiKeyReplacePreflightResult {
+  const normalizedOldApiKey = oldApiKey.trim();
+  const normalizedNewApiKey = newApiKey.trim();
+  const matchingOldKeys = currentKeys.filter((key) => key.trim() === normalizedOldApiKey);
+  if (matchingOldKeys.length === 0) {
+    return { ok: false, reason: 'api_key_stale' };
+  }
+  if (matchingOldKeys.length > 1) {
+    return { ok: false, reason: 'api_key_ambiguous' };
+  }
+
+  if (
+    normalizedOldApiKey !== normalizedNewApiKey &&
+    currentKeys.some((key) => key.trim() === normalizedNewApiKey)
+  ) {
+    return { ok: false, reason: 'api_key_duplicate' };
+  }
+
+  return { ok: true, canonicalOldApiKey: matchingOldKeys[0] };
+}
+
+// A stale source buffer must never be used as the payload for a config save.
+// eslint-disable-next-line react-refresh/only-export-components
+export function shouldBlockStaleSourceSave({
+  activeTab,
+  sourceSnapshotStale,
+}: {
+  activeTab: ConfigEditorTab;
+  sourceSnapshotStale: boolean;
+}): boolean {
+  return activeTab === 'source' && sourceSnapshotStale;
 }
 
 const LazyConfigSourceEditor = lazy(() => import('@/components/config/ConfigSourceEditor'));
@@ -258,6 +353,7 @@ export function ConfigPage() {
     loadVisualValuesFromYaml,
     applyVisualChangesToYaml,
     setVisualValues,
+    commitApiKeysText,
   } = useVisualConfig();
 
   const [activeTab, setActiveTab] = useState<ConfigEditorTab>(() => {
@@ -270,6 +366,8 @@ export function ConfigPage() {
   const [sourceConfigLoaded, setSourceConfigLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [apiKeyMutationInFlight, setApiKeyMutationInFlight] = useState(false);
+  const [sourceSnapshotStale, setSourceSnapshotStale] = useState(false);
   const [error, setError] = useState('');
   const [dirty, setDirty] = useState(false);
   const [diffModalOpen, setDiffModalOpen] = useState(false);
@@ -310,6 +408,15 @@ export function ConfigPage() {
   const [lastSearchedQuery, setLastSearchedQuery] = useState('');
   const editorRef = useRef<ReactCodeMirrorRef | null>(null);
   const floatingActionsRef = useRef<HTMLDivElement>(null);
+  const savingRef = useRef(false);
+  const managerSavingRef = useRef(false);
+  const apiKeyMutationInFlightRef = useRef(false);
+  const sourceSnapshotStaleRef = useRef(false);
+
+  const updateSourceSnapshotStale = useCallback((stale: boolean) => {
+    sourceSnapshotStaleRef.current = stale;
+    setSourceSnapshotStale(stale);
+  }, []);
 
   const disableControls = connectionStatus !== 'connected';
   const showManagerTab = panelHostedByUsageService === true;
@@ -374,6 +481,7 @@ export function ConfigPage() {
       setServerYaml(data);
       setMergedYaml(data);
       setPreviewServerYaml(data);
+      updateSourceSnapshotStale(false);
       setSourceConfigLoaded(true);
       loadVisualValuesFromYaml(data);
     } catch (err: unknown) {
@@ -382,7 +490,7 @@ export function ConfigPage() {
     } finally {
       setLoading(false);
     }
-  }, [loadVisualValuesFromYaml, t]);
+  }, [loadVisualValuesFromYaml, t, updateSourceSnapshotStale]);
 
   useEffect(() => {
     if (activeTab === 'manager') {
@@ -458,6 +566,188 @@ export function ConfigPage() {
   const managerCanSave = managerSaveState.canSave;
   const isDirty = isManagerTab ? managerHasPendingSave : sourceDirty;
 
+  const beginApiKeyOperation = useCallback(() => {
+    const blockReason = resolveApiKeyOperationBlockReason({
+      sourceDirty: dirty,
+      saving: savingRef.current || saving,
+      managerSaving: managerSavingRef.current || managerSaving,
+      apiKeyMutationInFlight: apiKeyMutationInFlightRef.current,
+      diffModalOpen,
+    });
+    if (blockReason) {
+      const error = new Error(
+        t(
+          blockReason === 'source_config_dirty'
+            ? 'config_management.visual.api_keys.source_dirty_guard'
+            : 'config_management.visual.api_keys.operation_busy'
+        )
+      ) as Error & { code?: string };
+      error.code = blockReason;
+      throw error;
+    }
+
+    apiKeyMutationInFlightRef.current = true;
+    setApiKeyMutationInFlight(true);
+  }, [diffModalOpen, dirty, managerSaving, saving, t]);
+
+  const endApiKeyOperation = useCallback(() => {
+    apiKeyMutationInFlightRef.current = false;
+    setApiKeyMutationInFlight(false);
+  }, []);
+
+  const refreshCleanSourceSnapshot = useCallback(async () => {
+    // A clean source buffer is a server snapshot, so refresh it after CPA updates.
+    // Never rewrite a source draft that the user has already changed.
+    if (dirty) {
+      updateSourceSnapshotStale(true);
+      return false;
+    }
+    try {
+      const latestYaml = await configFileApi.fetchConfigYaml();
+      if (dirty) {
+        updateSourceSnapshotStale(true);
+        return false;
+      }
+      setContent(latestYaml);
+      setServerYaml(latestYaml);
+      setMergedYaml(latestYaml);
+      setPreviewServerYaml(latestYaml);
+      updateSourceSnapshotStale(false);
+      return true;
+    } catch {
+      // The canonical API-key list has already been obtained. Keep the successful
+      // API-key mutation, but prevent a stale source buffer from being saved later.
+      updateSourceSnapshotStale(true);
+      return false;
+    }
+  }, [dirty, updateSourceSnapshotStale]);
+
+  const persistApiKeyMutation = useCallback(
+    async (mutation: ApiKeyMutation): Promise<string[]> => {
+      if (!apiKeyMutationInFlightRef.current) {
+        const error = new Error(t('config_management.visual.api_keys.operation_busy')) as Error & {
+          code?: string;
+        };
+        error.code = 'api_key_operation_busy';
+        throw error;
+      }
+      if (dirty) {
+        const error = new Error(
+          t('config_management.visual.api_keys.source_dirty_guard')
+        ) as Error & { code?: string };
+        error.code = 'source_config_dirty';
+        throw error;
+      }
+
+      if (mutation.type === 'create') {
+        const normalizedApiKey = mutation.apiKey.trim();
+        const currentKeys = await apiKeysApi.list();
+        if (currentKeys.some((key) => key.trim() === normalizedApiKey)) {
+          commitApiKeysText(currentKeys.join('\n'));
+          await refreshCleanSourceSnapshot();
+          const error = new Error(
+            t('config_management.visual.api_keys.error_duplicate')
+          ) as Error & { code?: string };
+          error.code = 'api_key_duplicate';
+          throw error;
+        }
+        updateSourceSnapshotStale(true);
+        try {
+          await apiKeysApi.replace([...currentKeys, normalizedApiKey]);
+        } catch (cause) {
+          const error = new Error(
+            t('config_management.visual.api_keys.mutation_outcome_unknown')
+          ) as Error & { cause?: unknown; code?: string };
+          error.code = 'api_key_mutation_outcome_unknown';
+          error.cause = cause;
+          throw error;
+        }
+      } else if (mutation.type === 'replace') {
+        const normalizedOldApiKey = mutation.oldApiKey.trim();
+        const normalizedNewApiKey = mutation.newApiKey.trim();
+        const currentKeys = await apiKeysApi.list();
+        const preflightError = resolveApiKeyReplacePreflight({
+          currentKeys,
+          oldApiKey: normalizedOldApiKey,
+          newApiKey: normalizedNewApiKey,
+        });
+        if (!preflightError.ok) {
+          commitApiKeysText(currentKeys.join('\n'));
+          await refreshCleanSourceSnapshot();
+          const messageKey =
+            preflightError.reason === 'api_key_stale'
+              ? 'config_management.visual.api_keys.stale_key_refreshed'
+              : preflightError.reason === 'api_key_duplicate'
+                ? 'config_management.visual.api_keys.error_duplicate'
+                : 'config_management.visual.api_keys.state_refresh_failed';
+          const error = new Error(t(messageKey)) as Error & { code?: string };
+          error.code = preflightError.reason;
+          throw error;
+        }
+        updateSourceSnapshotStale(true);
+        try {
+          await apiKeysApi.replaceValue(preflightError.canonicalOldApiKey, normalizedNewApiKey);
+        } catch (cause) {
+          const error = new Error(
+            t('config_management.visual.api_keys.mutation_outcome_unknown')
+          ) as Error & { cause?: unknown; code?: string };
+          error.code = 'api_key_mutation_outcome_unknown';
+          error.cause = cause;
+          throw error;
+        }
+      } else {
+        updateSourceSnapshotStale(true);
+        try {
+          await apiKeysApi.deleteValue(mutation.apiKey.trim());
+        } catch (cause) {
+          const error = new Error(
+            t('config_management.visual.api_keys.mutation_outcome_unknown')
+          ) as Error & { cause?: unknown; code?: string };
+          error.code = 'api_key_mutation_outcome_unknown';
+          error.cause = cause;
+          throw error;
+        }
+      }
+
+      let canonicalKeys: string[];
+      try {
+        canonicalKeys = await apiKeysApi.list();
+      } catch (error) {
+        const refreshError = new Error(
+          t('config_management.visual.api_keys.state_refresh_failed')
+        ) as Error & { cause?: unknown; code?: string };
+        refreshError.code = 'api_key_state_refresh_failed';
+        refreshError.cause = error;
+        throw refreshError;
+      }
+      commitApiKeysText(canonicalKeys.join('\n'));
+      await refreshCleanSourceSnapshot();
+      return canonicalKeys;
+    },
+    [commitApiKeysText, dirty, refreshCleanSourceSnapshot, t, updateSourceSnapshotStale]
+  );
+
+  const refreshApiKeys = useCallback(async (): Promise<string[]> => {
+    if (!apiKeyMutationInFlightRef.current) {
+      const error = new Error(t('config_management.visual.api_keys.operation_busy')) as Error & {
+        code?: string;
+      };
+      error.code = 'api_key_operation_busy';
+      throw error;
+    }
+    if (dirty) {
+      const error = new Error(
+        t('config_management.visual.api_keys.source_dirty_guard')
+      ) as Error & { code?: string };
+      error.code = 'source_config_dirty';
+      throw error;
+    }
+    const canonicalKeys = await apiKeysApi.list();
+    commitApiKeysText(canonicalKeys.join('\n'));
+    await refreshCleanSourceSnapshot();
+    return canonicalKeys;
+  }, [commitApiKeysText, dirty, refreshCleanSourceSnapshot, t]);
+
   const syncEmbeddedManagerBootstrap = useCallback(
     (serviceBase: string) => {
       if (panelHostedByUsageService !== true) return;
@@ -471,25 +761,33 @@ export function ConfigPage() {
     [detectedPanelBase, panelHostedByUsageService, setUsageServiceConfig]
   );
 
-  const applyManagerConfigResponse = useCallback(
-    (response: ManagerConfigResponse) => {
-      const nextConfig = response.config;
-      const collector = nextConfig.collector ?? MANAGER_COLLECTOR_DEFAULT;
+  const applyManagerConfigResponse = useCallback((response: ManagerConfigResponse) => {
+    const receivedConnection = response.config.cpaConnection;
+    const nextConfig: ManagerConfig = {
+      ...response.config,
+      cpaConnection: {
+        cpaBaseUrl: receivedConnection?.cpaBaseUrl || '',
+        managementKeyConfigured: Boolean(
+          receivedConnection?.managementKeyConfigured || receivedConnection?.managementKey
+        ),
+      },
+    };
+    const collector = nextConfig.collector ?? MANAGER_COLLECTOR_DEFAULT;
 
-      setManagerConfig(nextConfig);
-      setManagerConfigSource(response.source || '');
-      setManagerCPAUsage(response.cpaUsage ?? null);
-      setManagerRequestMonitoringEnabled(collector.enabled !== false);
-      setManagerCPABaseInput(nextConfig.cpaConnection?.cpaBaseUrl || '');
-      setManagerCollectorMode(collector.collectorMode || MANAGER_COLLECTOR_DEFAULT.collectorMode);
-      setManagerPollIntervalMs(String(collector.pollIntervalMs || MANAGER_COLLECTOR_DEFAULT.pollIntervalMs));
-      setManagerBatchSize(String(collector.batchSize || MANAGER_COLLECTOR_DEFAULT.batchSize));
-      setManagerQueryLimit(String(collector.queryLimit || MANAGER_COLLECTOR_DEFAULT.queryLimit));
-      setManagerCPAManagementKeyInput('');
-      setManagerCPAManagementKeyVisible(false);
-    },
-    []
-  );
+    setManagerConfig(nextConfig);
+    setManagerConfigSource(response.source || '');
+    setManagerCPAUsage(response.cpaUsage ?? null);
+    setManagerRequestMonitoringEnabled(collector.enabled !== false);
+    setManagerCPABaseInput(nextConfig.cpaConnection?.cpaBaseUrl || '');
+    setManagerCollectorMode(collector.collectorMode || MANAGER_COLLECTOR_DEFAULT.collectorMode);
+    setManagerPollIntervalMs(
+      String(collector.pollIntervalMs || MANAGER_COLLECTOR_DEFAULT.pollIntervalMs)
+    );
+    setManagerBatchSize(String(collector.batchSize || MANAGER_COLLECTOR_DEFAULT.batchSize));
+    setManagerQueryLimit(String(collector.queryLimit || MANAGER_COLLECTOR_DEFAULT.queryLimit));
+    setManagerCPAManagementKeyInput('');
+    setManagerCPAManagementKeyVisible(false);
+  }, []);
 
   const loadManagerConfig = useCallback(async () => {
     const serviceBase = resolveManagerServiceBase();
@@ -517,12 +815,12 @@ export function ConfigPage() {
       syncEmbeddedManagerBootstrap(serviceBase);
     } catch (error: unknown) {
       const code = getUsageServiceErrorCode(error);
-      if (
-        isManagerAuthErrorCode(code)
-      ) {
+      if (isManagerAuthErrorCode(code)) {
         setManagerError(t('config_management.manager.admin_key_required'));
       } else {
-        setManagerError(getUsageServiceDisplayError(error, 'config_management.manager.load_failed'));
+        setManagerError(
+          getUsageServiceDisplayError(error, 'config_management.manager.load_failed')
+        );
       }
     } finally {
       setManagerLoading(false);
@@ -577,6 +875,19 @@ export function ConfigPage() {
   }, [activeTab, loadManagerConfig]);
 
   const handleConfirmSave = async () => {
+    if (
+      shouldBlockStaleSourceSave({
+        activeTab,
+        sourceSnapshotStale: sourceSnapshotStale || sourceSnapshotStaleRef.current,
+      })
+    ) {
+      showNotification(t('notification.refresh_failed'), 'error');
+      return;
+    }
+    if (savingRef.current || managerSavingRef.current || apiKeyMutationInFlightRef.current) {
+      return;
+    }
+    savingRef.current = true;
     setSaving(true);
     try {
       const latestServerYaml = await configFileApi.fetchConfigYaml();
@@ -612,6 +923,7 @@ export function ConfigPage() {
       setServerYaml(latestContent);
       setMergedYaml(latestContent);
       setPreviewServerYaml(latestContent);
+      updateSourceSnapshotStale(false);
       loadVisualValuesFromYaml(latestContent);
 
       // Keep the global config store in sync so sidebar / other pages reflect YAML changes immediately.
@@ -639,6 +951,7 @@ export function ConfigPage() {
       const message = err instanceof Error ? err.message : '';
       showNotification(`${t('notification.save_failed')}: ${message}`, 'error');
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -667,6 +980,7 @@ export function ConfigPage() {
   );
 
   const handleManagerSave = async () => {
+    if (managerSavingRef.current || apiKeyMutationInFlightRef.current) return;
     if (disableControls) return;
     if (panelHostedByUsageService !== true) return;
     const serviceBase = resolveManagerServiceBase();
@@ -690,16 +1004,10 @@ export function ConfigPage() {
           )
         : MANAGER_COLLECTOR_DEFAULT.pollIntervalMs;
       const batchSize = managerRequestMonitoringEnabled
-        ? readManagerPositiveInteger(
-            managerBatchSize,
-            t('config_management.manager.batch_size')
-          )
+        ? readManagerPositiveInteger(managerBatchSize, t('config_management.manager.batch_size'))
         : MANAGER_COLLECTOR_DEFAULT.batchSize;
       const queryLimit = managerRequestMonitoringEnabled
-        ? readManagerPositiveInteger(
-            managerQueryLimit,
-            t('config_management.manager.query_limit')
-          )
+        ? readManagerPositiveInteger(managerQueryLimit, t('config_management.manager.query_limit'))
         : MANAGER_COLLECTOR_DEFAULT.queryLimit;
       if (managerRequestMonitoringEnabled && pollIntervalMs > managerRetentionSeconds * 1000) {
         showNotification(t('config_management.manager.poll_interval_retention_error'), 'error');
@@ -734,18 +1042,50 @@ export function ConfigPage() {
           serviceBase: '',
         },
       };
-      const savedCPABase = normalizeUsageServiceBase(managerConfig?.cpaConnection?.cpaBaseUrl || '');
+      const savedCPABase = normalizeUsageServiceBase(
+        managerConfig?.cpaConnection?.cpaBaseUrl || ''
+      );
       const nextCPABase = normalizeUsageServiceBase(cpaConnection.cpaBaseUrl || '');
-      const cpaConnectionChanged =
-        savedCPABase !== nextCPABase || managerCPAManagementKeyInput.trim() !== '';
+      const cpaBaseChanged = savedCPABase !== nextCPABase;
+      const managementKeyChanged = managerCPAManagementKeyInput.trim() !== '';
+      const cpaConnectionChanged = cpaBaseChanged || managementKeyChanged;
+
+      if (cpaBaseChanged && sourceDirty) {
+        showNotification(t('config_management.manager.cpa_switch_unsaved_config'), 'warning');
+        return;
+      }
 
       const runSave = async (notifyOnError: boolean) => {
+        if (managerSavingRef.current || apiKeyMutationInFlightRef.current) return;
+        managerSavingRef.current = true;
         setManagerSaving(true);
+        let requestStarted = false;
         try {
+          requestStarted = true;
           await saveManagerConfigPayload(serviceBase, nextConfig, requestAuthKey);
+          if (cpaBaseChanged) {
+            window.location.reload();
+          }
         } catch (error: unknown) {
+          if (cpaBaseChanged && requestStarted) {
+            if (notifyOnError) {
+              const message = getUsageServiceDisplayError(
+                error,
+                'usage_service_errors.request_failed'
+              );
+              showNotification(
+                `${t('notification.save_failed')}${message ? `: ${message}` : ''}`,
+                'error'
+              );
+            }
+            window.location.reload();
+            return;
+          }
           if (notifyOnError) {
-            const message = getUsageServiceDisplayError(error, 'usage_service_errors.request_failed');
+            const message = getUsageServiceDisplayError(
+              error,
+              'usage_service_errors.request_failed'
+            );
             showNotification(
               `${t('notification.save_failed')}${message ? `: ${message}` : ''}`,
               'error'
@@ -753,6 +1093,7 @@ export function ConfigPage() {
           }
           throw error;
         } finally {
+          managerSavingRef.current = false;
           setManagerSaving(false);
         }
       };
@@ -776,10 +1117,7 @@ export function ConfigPage() {
     } catch (error: unknown) {
       setManagerSaving(false);
       const message = getUsageServiceDisplayError(error, 'usage_service_errors.request_failed');
-      showNotification(
-        `${t('notification.save_failed')}${message ? `: ${message}` : ''}`,
-        'error'
-      );
+      showNotification(`${t('notification.save_failed')}${message ? `: ${message}` : ''}`, 'error');
     }
   };
 
@@ -789,11 +1127,26 @@ export function ConfigPage() {
       return;
     }
 
+    if (savingRef.current || managerSavingRef.current || apiKeyMutationInFlightRef.current) {
+      return;
+    }
+
+    if (
+      shouldBlockStaleSourceSave({
+        activeTab,
+        sourceSnapshotStale: sourceSnapshotStale || sourceSnapshotStaleRef.current,
+      })
+    ) {
+      showNotification(t('notification.refresh_failed'), 'error');
+      return;
+    }
+
     if (activeTab === 'visual' && visualParseError) {
       showNotification(t('config_management.visual_mode_save_blocked'), 'error');
       return;
     }
 
+    savingRef.current = true;
     setSaving(true);
     try {
       const latestServerYaml = await configFileApi.fetchConfigYaml();
@@ -848,6 +1201,7 @@ export function ConfigPage() {
         setServerYaml(latestServerYaml);
         setMergedYaml(nextMergedYaml);
         setPreviewServerYaml(latestServerYaml);
+        updateSourceSnapshotStale(false);
         loadVisualValuesFromYaml(latestServerYaml);
         showNotification(t('config_management.diff.no_changes'), 'info');
         return;
@@ -862,6 +1216,7 @@ export function ConfigPage() {
       const message = err instanceof Error ? err.message : '';
       showNotification(`${t('notification.save_failed')}: ${message}`, 'error');
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -872,8 +1227,9 @@ export function ConfigPage() {
   }, []);
 
   const handleTabChange = useCallback(
-    (tab: ConfigEditorTab) => {
+    async (tab: ConfigEditorTab) => {
       if (tab === activeTab) return;
+      if (apiKeyMutationInFlightRef.current || managerSavingRef.current) return;
 
       if (tab === 'manager') {
         setActiveTab(tab);
@@ -888,8 +1244,34 @@ export function ConfigPage() {
       }
 
       if (tab === 'source') {
-        // Only rewrite YAML when there are pending visual changes; otherwise preserve raw YAML + comments.
-        if (visualDirty) {
+        if (sourceSnapshotStaleRef.current) {
+          try {
+            const latestYaml = await configFileApi.fetchConfigYaml();
+            if (dirty) {
+              updateSourceSnapshotStale(true);
+              showNotification(t('notification.refresh_failed'), 'error');
+              return;
+            }
+            setContent(latestYaml);
+            setServerYaml(latestYaml);
+            setMergedYaml(latestYaml);
+            setPreviewServerYaml(latestYaml);
+            updateSourceSnapshotStale(false);
+
+            if (visualDirty) {
+              const nextContent = applyVisualChangesToYaml(latestYaml);
+              if (nextContent !== latestYaml) {
+                setContent(nextContent);
+                setDirty(true);
+              }
+            }
+          } catch {
+            updateSourceSnapshotStale(true);
+            showNotification(t('notification.refresh_failed'), 'error');
+            return;
+          }
+        } else if (visualDirty) {
+          // Only rewrite YAML when there are pending visual changes; otherwise preserve raw YAML + comments.
           const nextContent = applyVisualChangesToYaml(content);
           if (nextContent !== content) {
             setContent(nextContent);
@@ -914,10 +1296,12 @@ export function ConfigPage() {
       activeTab,
       applyVisualChangesToYaml,
       content,
+      dirty,
       loadVisualValuesFromYaml,
       showNotification,
       sourceConfigLoaded,
       t,
+      updateSourceSnapshotStale,
       visualDirty,
     ]
   );
@@ -1108,14 +1492,16 @@ export function ConfigPage() {
     if (error) return t('config_management.status_load_failed_short', { defaultValue: 'Failed' });
     if (hasVisualModeError)
       return t('config_management.visual_mode_unavailable_short', { defaultValue: 'YAML issue' });
-    if (hasVisualValidationErrors)
-      return t('config_management.visual.validation_blocked_short');
+    if (hasVisualValidationErrors) return t('config_management.visual.validation_blocked_short');
     if (saving) return t('config_management.status_saving_short', { defaultValue: 'Saving' });
     if (isDirty) return t('config_management.status_dirty_short', { defaultValue: 'Unsaved' });
     return t('config_management.status_loaded_short', { defaultValue: 'Loaded' });
   };
 
   const handleReload = useCallback(() => {
+    if (apiKeyMutationInFlightRef.current || savingRef.current || managerSavingRef.current) {
+      return;
+    }
     if (isManagerTab) {
       if (!managerDirty) {
         void loadManagerConfig();
@@ -1165,7 +1551,7 @@ export function ConfigPage() {
           type="button"
           className={styles.floatingActionButton}
           onClick={handleReload}
-          disabled={loading || saving}
+          disabled={loading || saving || managerSaving || apiKeyMutationInFlight}
           title={t('config_management.reload')}
           aria-label={t('config_management.reload')}
         >
@@ -1177,10 +1563,16 @@ export function ConfigPage() {
           onClick={handleSave}
           disabled={
             isManagerTab
-              ? disableControls || managerLoading || managerSaving || !managerCanSave
+              ? disableControls ||
+                managerLoading ||
+                managerSaving ||
+                apiKeyMutationInFlight ||
+                !managerCanSave
               : disableControls ||
                 loading ||
                 saving ||
+                managerSaving ||
+                apiKeyMutationInFlight ||
                 !isDirty ||
                 diffModalOpen ||
                 hasVisualModeError ||
@@ -1200,8 +1592,8 @@ export function ConfigPage() {
     panelHostedByUsageService === true &&
     Boolean(
       managerServiceTarget &&
-        managerCPABaseInput.trim() &&
-        (managerCPAManagementKeyInput.trim() || managerConfig?.cpaConnection?.managementKey)
+      managerCPABaseInput.trim() &&
+      (managerCPAManagementKeyInput.trim() || managerConfig?.cpaConnection?.managementKeyConfigured)
     );
   const managerRuntimeModeLabel =
     panelHostedByUsageService === true
@@ -1212,24 +1604,24 @@ export function ConfigPage() {
       {
         id: 'visual',
         label: t('config_management.tabs.visual'),
-        disabled: saving || loading,
+        disabled: saving || loading || managerSaving || apiKeyMutationInFlight,
       },
       {
         id: 'source',
         label: t('config_management.tabs.source'),
-        disabled: saving || loading,
+        disabled: saving || loading || managerSaving || apiKeyMutationInFlight,
       },
       ...(showManagerTab
         ? [
             {
               id: 'manager' as const,
               label: t('config_management.tabs.manager'),
-              disabled: managerSaving || managerLoading,
+              disabled: managerSaving || managerLoading || apiKeyMutationInFlight,
             },
           ]
         : []),
     ],
-    [loading, managerLoading, managerSaving, saving, showManagerTab, t]
+    [apiKeyMutationInFlight, loading, managerLoading, managerSaving, saving, showManagerTab, t]
   );
 
   return (
@@ -1247,9 +1639,7 @@ export function ConfigPage() {
 
         <div className={styles.content}>
           {!isManagerTab && error && <div className="error-box">{error}</div>}
-          {isManagerTab && managerError && (
-            <div className="error-box">{managerError}</div>
-          )}
+          {isManagerTab && managerError && <div className="error-box">{managerError}</div>}
           {!isManagerTab && !error && visualParseError && (
             <div className="error-box">
               {t('config_management.visual_mode_unavailable_detail', { message: visualParseError })}
@@ -1264,7 +1654,7 @@ export function ConfigPage() {
               detectedPanelBase={detectedPanelBase}
               managerRuntimeModeLabel={managerRuntimeModeLabel}
               managerHasBoundCPAManagementKey={Boolean(
-                managerConfig?.cpaConnection?.managementKey
+                managerConfig?.cpaConnection?.managementKeyConfigured
               )}
               managerCPABaseInput={managerCPABaseInput}
               managerCPAManagementKeyInput={managerCPAManagementKeyInput}
@@ -1316,8 +1706,19 @@ export function ConfigPage() {
               values={visualValues}
               validationErrors={visualValidationErrors}
               hasPayloadValidationErrors={visualHasPayloadValidationErrors}
-              disabled={disableControls || loading}
+              disabled={
+                disableControls ||
+                loading ||
+                saving ||
+                managerSaving ||
+                diffModalOpen ||
+                apiKeyMutationInFlight
+              }
               onChange={setVisualValues}
+              onPersistApiKeyMutation={persistApiKeyMutation}
+              onRefreshApiKeys={refreshApiKeys}
+              onApiKeyOperationStart={beginApiKeyOperation}
+              onApiKeyOperationEnd={endApiKeyOperation}
             />
           ) : (
             <div className={styles.sourceWorkspace}>
@@ -1386,7 +1787,14 @@ export function ConfigPage() {
                     value={content}
                     onChange={handleChange}
                     theme={resolvedTheme}
-                    editable={!disableControls && !loading}
+                    editable={
+                      !disableControls &&
+                      !loading &&
+                      !saving &&
+                      !managerSaving &&
+                      !apiKeyMutationInFlight &&
+                      !diffModalOpen
+                    }
                     placeholder={t('config_management.editor_placeholder')}
                   />
                 </Suspense>

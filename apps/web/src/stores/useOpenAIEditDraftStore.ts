@@ -10,7 +10,7 @@
 
 import type { SetStateAction } from 'react';
 import { create } from 'zustand';
-import type { OpenAIFormState } from '@/components/providers/types';
+import type { ModelEntry, OpenAIFormState } from '@/components/providers/types';
 import {
   buildEmptyProviderQuota,
   normalizeProviderQuotaForComparison,
@@ -41,7 +41,7 @@ export type OpenAIEditBaseline = {
     headers: Array<{ key: string; value: string }>;
     quota: ReturnType<typeof normalizeProviderQuotaForComparison>;
   }>;
-  models: Array<{ name: string; alias: string }>;
+  models: ModelEntry[];
   testModel: string;
 };
 
@@ -73,7 +73,7 @@ interface OpenAIEditDraftState {
   clearDraft: (key: string) => void;
 }
 
-const resolveAction = <T,>(action: SetStateAction<T>, prev: T): T =>
+const resolveAction = <T>(action: SetStateAction<T>, prev: T): T =>
   typeof action === 'function' ? (action as (previous: T) => T)(prev) : action;
 
 const buildEmptyForm = (): OpenAIFormState => ({

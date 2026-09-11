@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   buildAccountRows,
   buildApiKeyRows,
@@ -498,6 +498,26 @@ describe('buildMonitoringAuthMetaMap', () => {
     expect(map.get('current-auth-index')?.account).toBe('alice@example.com');
     expect(map.get('6bf749cb7db0e15c')?.account).toBe('alice@example.com');
   });
+
+  it('resolves plan metadata from outer and camel-case token fields', () => {
+    const map = buildMonitoringAuthMetaMap([
+      {
+        name: 'codex.json',
+        provider: 'codex',
+        authIndex: 'codex-auth-index',
+        plan_type: 'pro',
+      },
+      {
+        name: 'claude.json',
+        provider: 'claude',
+        authIndex: 'claude-auth-index',
+        id_token: { planType: 'plan_max' },
+      },
+    ]);
+
+    expect(map.get('codex-auth-index')?.planType).toBe('pro');
+    expect(map.get('claude-auth-index')?.planType).toBe('plan_max');
+  });
 });
 
 describe('buildApiKeyDisplayMap', () => {
@@ -620,6 +640,29 @@ describe('buildRangeFilteredRows', () => {
     expect(
       buildRangeFilteredRows(rows, 'all', null, 'unmatched raw key', 'hash-a').map((row) => row.id)
     ).toEqual(['hash-a']);
+  });
+
+  it('treats yesterday as a half-open local-day interval', () => {
+    const nowMs = new Date(2026, 7, 28, 15, 30, 0, 0).getTime();
+    const yesterdayStartMs = new Date(2026, 7, 27, 0, 0, 0, 0).getTime();
+    const todayStartMs = new Date(2026, 7, 28, 0, 0, 0, 0).getTime();
+    vi.useFakeTimers();
+    vi.setSystemTime(nowMs);
+
+    try {
+      const rows = [
+        createMonitoringEventRow({ id: 'before-yesterday', timestampMs: yesterdayStartMs - 1 }),
+        createMonitoringEventRow({ id: 'yesterday-start', timestampMs: yesterdayStartMs }),
+        createMonitoringEventRow({ id: 'yesterday-end', timestampMs: todayStartMs - 1 }),
+        createMonitoringEventRow({ id: 'today-start', timestampMs: todayStartMs }),
+      ];
+
+      expect(
+        buildRangeFilteredRows(rows, 'yesterday', null, '').map((row) => row.id)
+      ).toEqual(['yesterday-start', 'yesterday-end']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

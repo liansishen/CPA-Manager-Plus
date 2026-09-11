@@ -202,6 +202,8 @@ export interface UsageServiceSetupRequest {
 
 export interface ManagerCPAConnectionConfig {
   cpaBaseUrl: string;
+  managementKeyConfigured?: boolean;
+  /** Write-only. Responses never include the saved CPA Management Key. */
   managementKey?: string;
 }
 
@@ -2405,6 +2407,7 @@ const getDemoCodexInspectionActionsResponse = (
     if (
       !hasCodexInspectionStableIdentity({
         fileName: result.fileName,
+        runtimeId: result.runtimeId,
         provider: result.provider,
         authIndex: result.authIndex,
         accountId: result.accountId,
@@ -2672,7 +2675,20 @@ export const usageServiceApi = {
     managementKey?: string
   ): Promise<ManagerConfigResponse> => {
     if (__DEMO_SITE__ && isDemoMode()) {
-      return { ...getDemoManagerConfig(), config, source: 'db' };
+      const submittedKey = config.cpaConnection.managementKey?.trim();
+      return {
+        ...getDemoManagerConfig(),
+        config: {
+          ...config,
+          cpaConnection: {
+            cpaBaseUrl: config.cpaConnection.cpaBaseUrl,
+            managementKeyConfigured: Boolean(
+              submittedKey || config.cpaConnection.managementKeyConfigured
+            ),
+          },
+        },
+        source: 'db',
+      };
     }
 
     return withUsageServiceError(async () => {

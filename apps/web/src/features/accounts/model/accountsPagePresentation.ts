@@ -1,6 +1,10 @@
 import type { TFunction } from 'i18next';
 import { ANTIGRAVITY_CONFIG } from '@/components/quota';
-import { getQuotaWindowShortLabel } from '@/features/accounts/model/accountQuotaDisplayWindows';
+import {
+  getQuotaWindowShortLabel,
+  isModelScopedAccountQuotaWindow,
+  isStandardAccountQuotaListWindow,
+} from '@/features/accounts/model/accountQuotaDisplayWindows';
 import type {
   AccountQuotaWindowKind,
   AccountQuotaDisplayWindow,
@@ -102,35 +106,36 @@ export const getProviderLabel = (provider: string, t: TFunction) => {
   return provider.charAt(0).toUpperCase() + provider.slice(1);
 };
 
-export const formatPercent = (value: number | null, digits = 0) =>
-  value === null ? '-' : `${value.toFixed(digits)}%`;
+export const formatPercent = (value: number | null | undefined, digits = 0) =>
+  typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(digits)}%` : '-';
 
 export const formatMoney = (value: number) => formatUsd(value);
 
-export const formatCompactNumber = (value: number) => {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
-  return String(value);
+export const formatHistoryNumber = (value: number, locale: string) => {
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue)) return '-';
+  return new Intl.NumberFormat(locale || undefined).format(numberValue);
 };
 
-export const formatHistorySuccessRate = (value: number | null | undefined) =>
-  typeof value === 'number' && Number.isFinite(value) ? formatPercent(value * 100, 1) : '-';
+export const formatHistorySuccessRate = (value: number | null | undefined, digits = 1) =>
+  typeof value === 'number' && Number.isFinite(value) ? formatPercent(value * 100, digits) : '-';
 
 export const getAccountHistoryTitle = (
   t: TFunction,
   item: MonitoringAccountHistoryItem | null,
   loading: boolean,
-  error: string
+  error: string,
+  locale = 'en-US'
 ) => {
   if (error) return t('accounts.history_unavailable');
   if (loading && !item) return t('accounts.history_loading');
   if (!item || !item.matched) return t('accounts.history_empty');
   if (item.sync_status === 'pending') return t('accounts.history_pending_title');
   return t('accounts.history_title', {
-    requests: formatCompactNumber(item.total_requests),
-    tokens: formatCompactNumber(item.total_tokens),
+    requests: formatHistoryNumber(item.total_requests, locale),
+    tokens: formatHistoryNumber(item.total_tokens, locale),
     cost: formatMoney(item.total_cost),
-    rate: formatHistorySuccessRate(item.success_rate),
+    rate: formatHistorySuccessRate(item.success_rate, 2),
   });
 };
 
@@ -155,6 +160,8 @@ const formatNumericTimestamp = (date: Date, includeSeconds = false) => {
   )} ${padTimestampPart(date.getHours())}:${padTimestampPart(date.getMinutes())}`;
   return includeSeconds ? `${base}:${padTimestampPart(date.getSeconds())}` : base;
 };
+
+const QUOTA_RESET_DAY_MS = 24 * 60 * 60 * 1000;
 
 export const formatTimestamp = (value: number | null, _locale: string, includeSeconds = false) => {
   const date = resolveValidTimestampDate(value);
@@ -183,6 +190,21 @@ export const formatQuotaResetTimestamp = (value: number | null | undefined, _loc
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
   return formatNumericTimestamp(date);
+};
+
+export const getQuotaResetRemainingDays = (
+  expiresAtMs: number | null | undefined,
+  nowMs = Date.now()
+): number | null => {
+  if (
+    typeof expiresAtMs !== 'number' ||
+    !Number.isFinite(expiresAtMs) ||
+    expiresAtMs <= 0 ||
+    !Number.isFinite(nowMs)
+  ) {
+    return null;
+  }
+  return Math.max(0, Math.ceil((expiresAtMs - nowMs) / QUOTA_RESET_DAY_MS));
 };
 
 export const formatQuotaResetDisplay = (
@@ -280,6 +302,102 @@ export const quotaStatusLabelKey = (status: AccountRow['quota']['status']) => {
   }
 };
 
+export type AccountQuotaLifecycleBarOverride = 'bad' | 'neutral' | null;
+
+export const getAccountQuotaLifecycleBarOverride = (
+  status: AccountRow['quota']['status']
+): AccountQuotaLifecycleBarOverride => {
+  switch (status) {
+    case 'error':
+      return 'bad';
+    case 'loading':
+    case 'disabled':
+    case 'unknown':
+      return 'neutral';
+    case 'ok':
+    case 'low':
+    case 'exhausted':
+    default:
+      return null;
+  }
+};
+
+const selectXaiQuotaListFallbackWindows = (
+  windows: AccountQuotaDisplayWindow[]
+): AccountQuotaDisplayWindow[] => {
+  const billing =
+    windows.find((window) => window.source === 'xai' && window.key === 'billing') ??
+    windows.find(
+      (window) =>
+        window.source === 'xai' && window.key === 'credits-period' && window.kind === 'billing'
+    );
+  const payg = windows.find((window) => window.source === 'xai' && window.key === 'pay-as-you-go');
+
+  return [billing, payg].filter((window): window is AccountQuotaDisplayWindow => Boolean(window));
+};
+
+const isCodexQuotaListCandidate = (window: AccountQuotaDisplayWindow): boolean =>
+  !isModelScopedAccountQuotaWindow(window) &&
+  (window.kind === 'five_hour' || window.kind === 'weekly' || window.kind === 'monthly');
+
+const selectCodexQuotaListWindows = (
+  quotaWindows: AccountQuotaDisplayWindow[]
+): AccountQuotaDisplayWindow[] => {
+  return quotaWindows.filter(isCodexQuotaListCandidate);
+};
+
+const selectKimiQuotaListWindows = (
+  quotaWindows: AccountQuotaDisplayWindow[]
+): AccountQuotaDisplayWindow[] => {
+  const topLevelWindows = quotaWindows.filter(
+    (window) => !window.key.startsWith('usage-')
+  );
+
+  const limits = topLevelWindows.filter(
+    (window) =>
+      window.key !== 'summary' &&
+      !isModelScopedAccountQuotaWindow(window) &&
+      (isStandardAccountQuotaListWindow(window) ||
+        window.kind === 'five_hour' ||
+        window.kind === 'daily' ||
+        window.kind === 'weekly')
+  );
+
+  const summary = topLevelWindows.find(
+    (window) => window.key === 'summary' && !isModelScopedAccountQuotaWindow(window)
+  );
+
+  if (summary) {
+    return [...limits, summary];
+  }
+  return limits;
+};
+
+export const selectAccountQuotaListWindows = (
+  row: AccountRow,
+  quotaWindows: AccountQuotaDisplayWindow[],
+  standardQuotaWindows: AccountQuotaDisplayWindow[]
+): AccountQuotaDisplayWindow[] => {
+  switch (row.provider) {
+    case 'codex':
+      return selectCodexQuotaListWindows(quotaWindows);
+    case 'kimi':
+      return selectKimiQuotaListWindows(quotaWindows);
+    case 'xai':
+      return standardQuotaWindows.length > 0
+        ? standardQuotaWindows
+        : selectXaiQuotaListFallbackWindows(quotaWindows);
+    case 'antigravity':
+      return standardQuotaWindows.length > 0
+        ? standardQuotaWindows
+        : quotaWindows.slice(0, 2);
+    case 'claude':
+      return standardQuotaWindows;
+    default:
+      return standardQuotaWindows;
+  }
+};
+
 const getAntigravityGroupRank = (label: string) => {
   const normalized = label.toLowerCase();
   if (normalized.includes('claude') || normalized.includes('gpt')) return 0;
@@ -292,6 +410,15 @@ const getAntigravityMatrixGroupDisplayLabel = (label: string) => {
   if (normalized.includes('claude') || normalized.includes('gpt')) return 'Claude';
   if (normalized.includes('gemini')) return 'Gemini';
   return label;
+};
+
+export const getAccountQuotaFallbackVisibleScopeLabel = (
+  row: AccountRow,
+  window: AccountQuotaDisplayWindow
+): string | null => {
+  if (row.provider !== ANTIGRAVITY_CONFIG.type || window.source !== 'antigravity') return null;
+  const groupLabel = window.groupLabel?.trim();
+  return groupLabel ? getAntigravityMatrixGroupDisplayLabel(groupLabel) : null;
 };
 
 export const buildAntigravityQuotaMatrix = (
