@@ -146,6 +146,8 @@ const createTarget = (
   },
   accountId: overrides.accountId ?? null,
   planType: overrides.planType ?? null,
+  customQuotaBindingKey: overrides.customQuotaBindingKey,
+  customQuotaBinding: overrides.customQuotaBinding,
 });
 
 const buildEntryFromMockedProviderFetch = async (

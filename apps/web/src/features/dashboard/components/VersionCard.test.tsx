@@ -158,6 +158,7 @@ const renderCard = async ({
     panelHostMode,
     panelBase: '',
     managerServiceBase: '',
+    managerConfig: null,
     managerServiceAvailable,
     requestMonitoringAvailable: true,
     modelPricesAvailable: true,
