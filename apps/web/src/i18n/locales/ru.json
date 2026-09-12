@@ -4538,7 +4538,8 @@
     "white": "Светлая",
     "dark": "Тёмная",
     "auto": "Авто",
-    "claude": "Claude"
+    "claude": "Claude",
+    "claude-dark": "Claude тёмная"
   },
   "visual_effects": {
     "switch": "Визуальные эффекты",

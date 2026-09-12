@@ -1055,7 +1055,8 @@
 }
 
 // 暗色主题适配
-:global([data-theme='dark']) {
+:global([data-theme='dark']),
+:global([data-theme='claude-dark']) {
   .modelTag {
     background: rgba($primary-color, 0.1);
     border-color: var(--border-secondary);

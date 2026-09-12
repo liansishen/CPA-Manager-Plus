@@ -450,7 +450,8 @@
   display: none;
 }
 
-[data-theme='dark'] {
+[data-theme='dark'],
+[data-theme='claude-dark'] {
   .sidebar-brand-wordmark-light {
     display: none;
   }
@@ -649,6 +650,11 @@
   [data-theme='claude'] {
     --sidebar-bg-color: rgba(251, 250, 247, 0.96);
     --sidebar-logo-bg-color: rgba(247, 244, 237, 0.92);
+  }
+
+  [data-theme='claude-dark'] {
+    --sidebar-bg-color: rgba(28, 25, 22, 0.96);
+    --sidebar-logo-bg-color: rgba(35, 31, 27, 0.92);
   }
 
   .app-shell,

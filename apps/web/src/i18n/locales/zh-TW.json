@@ -4534,7 +4534,8 @@
     "white": "明亮",
     "dark": "黑夜",
     "auto": "自動",
-    "claude": "Claude"
+    "claude": "Claude",
+    "claude-dark": "Claude 夜間"
   },
   "visual_effects": {
     "switch": "視覺效果",

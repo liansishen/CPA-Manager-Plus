@@ -173,7 +173,8 @@
   display: none;
 }
 
-[data-theme='dark'] {
+[data-theme='dark'],
+[data-theme='claude-dark'] {
   .brandLogoLight {
     display: none;
   }
@@ -572,7 +573,8 @@
   display: none;
 }
 
-[data-theme='dark'] {
+[data-theme='dark'],
+[data-theme='claude-dark'] {
   .splashLogoLight {
     display: none;
   }

@@ -9,7 +9,7 @@ import type { Theme } from '@/types';
 import { STORAGE_KEY_THEME } from '@/utils/constants';
 
 type ResolvedTheme = 'light' | 'dark';
-type AppliedTheme = ResolvedTheme | 'white' | 'claude';
+type AppliedTheme = ResolvedTheme | 'white' | 'claude' | 'claude-dark';
 
 interface ThemeState {
   theme: Theme;
@@ -31,11 +31,17 @@ const resolveAutoTheme = (): AppliedTheme => {
 };
 
 const normalizeResolvedTheme = (theme: AppliedTheme): ResolvedTheme => {
-  return theme === 'dark' ? 'dark' : 'light';
+  return theme === 'dark' || theme === 'claude-dark' ? 'dark' : 'light';
 };
 
 const isTheme = (theme: unknown): theme is Theme => {
-  return theme === 'auto' || theme === 'white' || theme === 'dark' || theme === 'claude';
+  return (
+    theme === 'auto' ||
+    theme === 'white' ||
+    theme === 'dark' ||
+    theme === 'claude' ||
+    theme === 'claude-dark'
+  );
 };
 
 const resolveTheme = (theme: Theme): AppliedTheme => {
@@ -47,6 +53,9 @@ const resolveTheme = (theme: Theme): AppliedTheme => {
   }
   if (theme === 'claude') {
     return 'claude';
+  }
+  if (theme === 'claude-dark') {
+    return 'claude-dark';
   }
   return theme;
 };
@@ -64,6 +73,11 @@ const applyTheme = (resolved: AppliedTheme) => {
 
   if (resolved === 'claude') {
     document.documentElement.setAttribute('data-theme', 'claude');
+    return;
+  }
+
+  if (resolved === 'claude-dark') {
+    document.documentElement.setAttribute('data-theme', 'claude-dark');
     return;
   }
 
@@ -87,7 +101,7 @@ export const useThemeStore = create<ThemeState>()(
 
       cycleTheme: () => {
         const { theme, setTheme } = get();
-        const order: Theme[] = ['auto', 'white', 'dark', 'claude'];
+        const order: Theme[] = ['auto', 'white', 'dark', 'claude', 'claude-dark'];
         const currentIndex = order.indexOf(theme);
         const nextTheme = order[(currentIndex + 1) % order.length];
         setTheme(nextTheme);

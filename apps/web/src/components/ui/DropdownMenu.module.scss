@@ -65,7 +65,8 @@
   line-height: 1.4;
 }
 
-:global([data-theme='dark']) .menu {
+:global([data-theme='dark']) .menu,
+:global([data-theme='claude-dark']) .menu {
   border-color: color-mix(
     in srgb,
     var(--primary-color, #409eff) 30%,

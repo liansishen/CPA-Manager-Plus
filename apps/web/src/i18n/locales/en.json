@@ -4538,7 +4538,8 @@
     "white": "Light",
     "dark": "Dark",
     "auto": "Auto",
-    "claude": "Claude"
+    "claude": "Claude",
+    "claude-dark": "Claude Dark"
   },
   "visual_effects": {
     "switch": "Visual effects",

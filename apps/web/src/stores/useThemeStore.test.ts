@@ -29,7 +29,7 @@ describe('useThemeStore', () => {
     Reflect.deleteProperty(globalThis, 'document');
   });
 
-  it('cycles through auto -> white -> dark -> claude -> auto', () => {
+  it('cycles through auto -> white -> dark -> claude -> claude-dark -> auto', () => {
     const { cycleTheme } = useThemeStore.getState();
 
     expect(useThemeStore.getState().theme).toBe('auto');
@@ -48,6 +48,11 @@ describe('useThemeStore', () => {
     expect(useThemeStore.getState().resolvedTheme).toBe('light');
 
     cycleTheme();
+    expect(useThemeStore.getState().theme).toBe('claude-dark');
+    expect(attrs.get('data-theme')).toBe('claude-dark');
+    expect(useThemeStore.getState().resolvedTheme).toBe('dark');
+
+    cycleTheme();
     expect(useThemeStore.getState().theme).toBe('auto');
     expect(attrs.get('data-theme')).toBe('white');
   });
@@ -59,5 +64,14 @@ describe('useThemeStore', () => {
     expect(useThemeStore.getState().theme).toBe('claude');
     expect(useThemeStore.getState().resolvedTheme).toBe('light');
     expect(attrs.get('data-theme')).toBe('claude');
+  });
+
+  it('sets theme directly to claude-dark', () => {
+    const { setTheme } = useThemeStore.getState();
+
+    setTheme('claude-dark');
+    expect(useThemeStore.getState().theme).toBe('claude-dark');
+    expect(useThemeStore.getState().resolvedTheme).toBe('dark');
+    expect(attrs.get('data-theme')).toBe('claude-dark');
   });
 });

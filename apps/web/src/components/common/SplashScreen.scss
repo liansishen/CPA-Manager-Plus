@@ -45,7 +45,8 @@
   display: none;
 }
 
-[data-theme='dark'] {
+[data-theme='dark'],
+[data-theme='claude-dark'] {
   .splash-logo-light {
     display: none;
   }

@@ -182,7 +182,8 @@ button:disabled {
   }
 }
 
-[data-theme='dark'] {
+[data-theme='dark'],
+[data-theme='claude-dark'] {
   .btn {
     color: var(--text-primary);
   }

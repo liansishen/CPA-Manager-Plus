@@ -653,7 +653,8 @@
       background: rgba(255, 152, 0, 0.5);
     }
 
-    [data-theme='dark'] & {
+    [data-theme='dark'] &,
+    [data-theme='claude-dark'] & {
       .cm-gutters {
         background: var(--surface-subtle);
       }

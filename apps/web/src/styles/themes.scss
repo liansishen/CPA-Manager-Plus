@@ -656,6 +656,183 @@
   --accent-tertiary: var(--app-accent-soft);
 }
 
+[data-theme='claude-dark'] {
+  // Claude 经典深暖炭黑底色与柔和暖调渐变 (Warm Charcoal / Dark Earthy Ochre)
+  --app-bg: #181614;
+  --app-bg-gradient: linear-gradient(135deg, #181614 0%, #1e1b18 50%, #24201b 100%);
+  --app-bg-blob-1-start: #3d241a;
+  --app-bg-blob-1-end: #4c2d20;
+  --app-bg-blob-2-start: #2e261a;
+  --app-bg-blob-2-end: #382d1c;
+  --app-bg-blob-1-opacity: 0.45;
+  --app-bg-blob-2-opacity: 0.4;
+  --app-bg-blob-blur: 70px;
+
+  // 卡片表面与深暖毛玻璃
+  --app-surface: rgba(33, 30, 26, 0.9);
+  --app-surface-strong: #26231e;
+  --app-surface-muted: rgba(255, 248, 240, 0.06);
+  --app-border: rgba(240, 220, 200, 0.1);
+  --app-border-strong: rgba(240, 220, 200, 0.16);
+  --app-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.25);
+  --app-shadow-soft: 0 4px 16px -2px rgba(0, 0, 0, 0.4);
+
+  // Claude 象牙纸白文字（极具暖调与舒适阅读感）
+  --app-text-primary: #ece6dc;
+  --app-text-regular: #b8aea2;
+  --app-text-muted: #82786d;
+
+  // Claude 标志性陶土红在暗色下的亮丽表现
+  --app-accent: #e07958;
+  --app-accent-soft: rgba(224, 121, 88, 0.18);
+  --surface-subtle: rgba(255, 248, 240, 0.05);
+  --surface-subtle-hover: rgba(224, 121, 88, 0.12);
+  --surface-subtle-strong: rgba(224, 121, 88, 0.18);
+  --border-subtle: rgba(240, 220, 200, 0.1);
+  --border-subtle-dashed: rgba(240, 220, 200, 0.15);
+
+  // 侧边栏
+  --sidebar-bg-color: rgba(28, 25, 22, 0.85);
+  --sidebar-logo-bg-color: rgba(35, 31, 27, 0.7);
+  --sidebar-hover-bg-color: rgba(224, 121, 88, 0.1);
+  --sidebar-text-color: #b8aea2;
+  --sidebar-active-text-color: #ece6dc;
+  --sidebar-shadow: 2px 0 16px rgba(0, 0, 0, 0.45);
+
+  // 玻璃效果
+  --primary-gradient: linear-gradient(135deg, #e07958 0%, #c86445 100%);
+  --glass-bg: rgba(33, 30, 26, 0.82);
+  --glass-bg-secondary: rgba(255, 248, 240, 0.06);
+  --glass-border: rgba(240, 220, 200, 0.12);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+
+  // 输入框
+  --app-input-bg: rgba(26, 24, 21, 0.85);
+  --app-input-bg-focus: #26231e;
+  --app-input-border: rgba(240, 220, 200, 0.15);
+  --app-input-border-focus: var(--app-accent);
+
+  // 背景层级
+  --bg-secondary: var(--app-bg);
+  --bg-primary: var(--app-surface);
+  --bg-tertiary: var(--app-surface-muted);
+  --bg-hover: var(--app-accent-soft);
+  --bg-quinary: #151311;
+  --bg-error-light: #2d1818;
+  --floating-surface: #26231e;
+  --floating-border: rgba(240, 220, 200, 0.16);
+  --floating-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+
+  // 文字变量
+  --text-primary: var(--app-text-primary);
+  --text-secondary: var(--app-text-regular);
+  --text-tertiary: var(--app-text-muted);
+  --text-quaternary: #5e564d;
+  --text-muted: var(--app-text-muted);
+
+  // 边框变量
+  --border-color: var(--app-border);
+  --border-secondary: rgba(240, 220, 200, 0.07);
+  --border-primary: var(--app-border-strong);
+  --border-hover: rgba(224, 121, 88, 0.42);
+
+  // 主题核心色系 (Claude 暗色赤陶色阶)
+  --color-primary: #e07958;
+  --color-primary-light-3: #e89275;
+  --color-primary-light-5: rgba(224, 121, 88, 0.36);
+  --color-primary-light-7: rgba(224, 121, 88, 0.26);
+  --color-primary-light-8: rgba(224, 121, 88, 0.18);
+  --color-primary-light-9: rgba(224, 121, 88, 0.12);
+  --color-primary-dark-2: #f0aa95;
+
+  // 辅助色系 (暗色适配信噪比与柔和度)
+  --color-success: #4ade80;
+  --color-success-light-3: #86efac;
+  --color-success-light-5: rgba(74, 222, 128, 0.3);
+  --color-success-light-7: rgba(74, 222, 128, 0.22);
+  --color-success-light-8: rgba(74, 222, 128, 0.16);
+  --color-success-light-9: rgba(74, 222, 128, 0.1);
+  --color-success-dark-2: #22c55e;
+
+  --color-warning: #fbbf24;
+  --color-warning-light-3: #fcd34d;
+  --color-warning-light-5: rgba(251, 191, 36, 0.3);
+  --color-warning-light-7: rgba(251, 191, 36, 0.22);
+  --color-warning-light-8: rgba(251, 191, 36, 0.16);
+  --color-warning-light-9: rgba(251, 191, 36, 0.1);
+  --color-warning-dark-2: #f59e0b;
+
+  --color-danger: #f87171;
+  --color-danger-light-3: #fca5a5;
+  --color-danger-light-5: rgba(248, 113, 113, 0.3);
+  --color-danger-light-7: rgba(248, 113, 113, 0.22);
+  --color-danger-light-8: rgba(248, 113, 113, 0.16);
+  --color-danger-light-9: rgba(248, 113, 113, 0.1);
+  --color-danger-dark-2: #ef4444;
+
+  --color-error: var(--color-danger);
+  --color-error-light-9: var(--color-danger-light-9);
+  --color-error-dark-2: var(--color-danger-dark-2);
+
+  --color-info: #94a3b8;
+  --color-info-light-3: #cbd5e1;
+  --color-info-light-5: rgba(148, 163, 184, 0.27);
+  --color-info-light-7: rgba(148, 163, 184, 0.2);
+  --color-info-light-8: rgba(148, 163, 184, 0.14);
+  --color-info-light-9: rgba(148, 163, 184, 0.1);
+  --color-info-dark-2: #64748b;
+
+  // 数据色阶 (将 blue 阶梯设为 Claude 赤陶暗色色阶)
+  --data-blue-base: #e07958;
+  --data-blue-dark-2: #f0aa95;
+  --data-blue-light-3: rgba(224, 121, 88, 0.38);
+  --data-blue-light-5: rgba(224, 121, 88, 0.3);
+  --data-blue-light-7: rgba(224, 121, 88, 0.22);
+  --data-blue-light-8: rgba(224, 121, 88, 0.16);
+  --data-blue-light-9: rgba(224, 121, 88, 0.12);
+
+  --data-track-bg: rgba(255, 255, 255, 0.08);
+
+  // 徽章与标签状态
+  --data-badge-success-text: #4ade80;
+  --data-badge-success-bg: rgba(74, 222, 128, 0.14);
+  --data-badge-success-border: rgba(74, 222, 128, 0.26);
+  --data-badge-warning-text: #fbbf24;
+  --data-badge-warning-bg: rgba(251, 191, 36, 0.14);
+  --data-badge-warning-border: rgba(251, 191, 36, 0.26);
+  --data-badge-danger-text: #f87171;
+  --data-badge-danger-bg: rgba(248, 113, 113, 0.14);
+  --data-badge-danger-border: rgba(248, 113, 113, 0.26);
+  --data-badge-info-text: #e07958;
+  --data-badge-info-bg: rgba(224, 121, 88, 0.16);
+  --data-badge-info-border: rgba(224, 121, 88, 0.28);
+  --data-badge-neutral-text: #b8aea2;
+  --data-badge-neutral-bg: rgba(255, 248, 240, 0.08);
+  --data-badge-neutral-border: rgba(240, 220, 200, 0.14);
+
+  // 强调交互状态
+  --primary-color: var(--color-primary);
+  --primary-hover: var(--color-primary-light-3);
+  --primary-active: var(--color-primary);
+  --primary-contrast: #ffffff;
+  --primary-solid: var(--color-primary);
+  --primary-solid-hover: var(--color-primary-light-3);
+  --primary-solid-active: var(--color-primary);
+  --primary-soft: var(--color-primary-light-8);
+  --primary-subtle: var(--color-primary-light-9);
+  --primary-ring: rgba(224, 121, 88, 0.32);
+  --focus-bg: color-mix(in srgb, var(--primary-color) 10%, var(--bg-primary));
+  --focus-border: color-mix(in srgb, var(--primary-color) 45%, var(--border-color));
+  --focus-inset: color-mix(in srgb, var(--primary-color) 25%, transparent);
+  --focus-text: var(--primary-contrast);
+
+  --count-badge-bg: var(--data-badge-info-bg);
+  --count-badge-text: var(--data-badge-info-text);
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 25px -5px rgba(0, 0, 0, 0.55);
+  --accent-tertiary: var(--app-accent-soft);
+}
+
 @media (max-width: 768px),
   (prefers-reduced-motion: reduce),
   (prefers-reduced-transparency: reduce) {
