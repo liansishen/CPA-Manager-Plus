@@ -20,8 +20,8 @@ func TestHandleUsageSummaryUsesQueryLimitAndPanelAuthorization(t *testing.T) {
 	cfg.QueryLimit = 1
 	st := testutil.NewStore(t, cfg)
 	if _, err := st.UsageEvents.InsertBatch(context.Background(), []usage.Event{
-		{EventHash: "older", TimestampMS: 100, Timestamp: "2026-01-01T00:00:00Z", Model: "gpt-old", CreatedAtMS: 100},
-		{EventHash: "newer", TimestampMS: 200, Timestamp: "2026-01-01T00:00:01Z", Model: "gpt-new", CreatedAtMS: 200},
+		{EventHash: "0000000000000000000000000000000000000000000000000000000000000001", TimestampMS: 100, Timestamp: "2026-01-01T00:00:00Z", Model: "gpt-old", CreatedAtMS: 100},
+		{EventHash: "0000000000000000000000000000000000000000000000000000000000000002", TimestampMS: 200, Timestamp: "2026-01-01T00:00:01Z", Model: "gpt-new", CreatedAtMS: 200},
 	}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}

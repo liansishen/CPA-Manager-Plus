@@ -2,6 +2,8 @@ package monitoring
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -252,7 +254,7 @@ func TestAnalyticsHeatmapIncludesTopContributors(t *testing.T) {
 		math.Abs(topModel.Cost-2) > 0.000001 {
 		t.Fatalf("top model contributor = %#v", topModel)
 	}
-	if len(point.APIKeyContributors) != 2 || point.APIKeyContributors[0].Key != "api-key-auth-1" ||
+	if len(point.APIKeyContributors) != 2 || point.APIKeyContributors[0].Key != testCanonicalHash("api-key-auth-1") ||
 		point.APIKeyContributors[0].Calls != 2 {
 		t.Fatalf("api key contributors = %#v", point.APIKeyContributors)
 	}
@@ -337,7 +339,7 @@ func TestAnalyticsAPIKeyTimelineBuildsExactPerKeyBuckets(t *testing.T) {
 		FromMS: fromMS,
 		ToMS:   toMS,
 		Filters: Filters{
-			APIKeyHashes: []string{"api-key-auth-1", "api-key-auth-2"},
+			APIKeyHashes: []string{testCanonicalHash("api-key-auth-1"), testCanonicalHash("api-key-auth-2")},
 		},
 		Include: Include{
 			APIKeyTimeline: true,
@@ -356,14 +358,14 @@ func TestAnalyticsAPIKeyTimelineBuildsExactPerKeyBuckets(t *testing.T) {
 	}
 	firstBucketMS := time.UnixMilli(fromMS).UTC().Truncate(time.Hour).UnixMilli()
 	secondBucketMS := time.UnixMilli(fromMS + 60*60*1000).UTC().Truncate(time.Hour).UnixMilli()
-	firstBucket := byKeyBucket[fmt.Sprintf("api-key-auth-1/%d", firstBucketMS)]
+	firstBucket := byKeyBucket[fmt.Sprintf("%s/%d", testCanonicalHash("api-key-auth-1"), firstBucketMS)]
 	if firstBucket.Calls != 2 || firstBucket.Success != 1 || firstBucket.Failure != 1 || firstBucket.TotalTokens != 3_000_000 {
 		t.Fatalf("first api key bucket = %#v", firstBucket)
 	}
 	if firstBucket.Cost <= 0 {
 		t.Fatalf("first api key bucket cost = %#v", firstBucket)
 	}
-	secondBucket := byKeyBucket[fmt.Sprintf("api-key-auth-2/%d", secondBucketMS)]
+	secondBucket := byKeyBucket[fmt.Sprintf("%s/%d", testCanonicalHash("api-key-auth-2"), secondBucketMS)]
 	if secondBucket.Calls != 1 || secondBucket.Success != 1 || secondBucket.Failure != 0 || secondBucket.TotalTokens != 3_000_000 {
 		t.Fatalf("second api key bucket = %#v", secondBucket)
 	}
@@ -1191,7 +1193,7 @@ func TestAnalyticsAppliesFilters(t *testing.T) {
 	if resp.Summary == nil || resp.Summary.TotalCalls != 1 || resp.Summary.FailureCalls != 0 {
 		t.Fatalf("filtered summary = %#v", resp.Summary)
 	}
-	if resp.Events == nil || len(resp.Events.Items) != 1 || resp.Events.Items[0].EventHash != "filter-a" {
+	if resp.Events == nil || len(resp.Events.Items) != 1 || resp.Events.Items[0].EventHash != testCanonicalHash("filter-a") {
 		t.Fatalf("filtered events = %#v", resp.Events)
 	}
 
@@ -1200,7 +1202,7 @@ func TestAnalyticsAppliesFilters(t *testing.T) {
 		FromMS:           fromMS,
 		ToMS:             toMS,
 		SearchQuery:      "raw-api-key",
-		SearchAPIKeyHash: "api-key-auth-2",
+		SearchAPIKeyHash: testCanonicalHash("api-key-auth-2"),
 		Filters: Filters{
 			IncludeFailed: &includeFailed,
 		},
@@ -1209,7 +1211,7 @@ func TestAnalyticsAppliesFilters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("analytics api key hash search: %v", err)
 	}
-	if resp.Events == nil || len(resp.Events.Items) != 1 || resp.Events.Items[0].EventHash != "filter-c" {
+	if resp.Events == nil || len(resp.Events.Items) != 1 || resp.Events.Items[0].EventHash != testCanonicalHash("filter-c") {
 		t.Fatalf("api key hash search events = %#v", resp.Events)
 	}
 }
@@ -1242,7 +1244,7 @@ func TestAnalyticsAccountAndAPIKeyStatsUseFullFilteredScope(t *testing.T) {
 		events[index].AccountSnapshot = "team@example.com"
 		events[index].AuthLabelSnapshot = "Team Account"
 		events[index].AuthProviderSnapshot = "codex"
-		events[index].APIKeyHash = "client-key-hash"
+		events[index].APIKeyHash = testCanonicalHash("client-key-hash")
 	}
 	if _, err := db.InsertEvents(ctx, events); err != nil {
 		t.Fatalf("insert events: %v", err)
@@ -1274,7 +1276,7 @@ func TestAnalyticsAccountAndAPIKeyStatsUseFullFilteredScope(t *testing.T) {
 	if len(resp.AccountStats[0].Models) != 2 {
 		t.Fatalf("account model stats = %#v", resp.AccountStats[0].Models)
 	}
-	if len(resp.APIKeyStats) != 1 || resp.APIKeyStats[0].APIKeyHash != "client-key-hash" ||
+	if len(resp.APIKeyStats) != 1 || resp.APIKeyStats[0].APIKeyHash != testCanonicalHash("client-key-hash") ||
 		resp.APIKeyStats[0].Calls != 3 || resp.APIKeyStats[0].FailureCalls != 1 ||
 		resp.APIKeyStats[0].TotalTokens != 43 {
 		t.Fatalf("api key stats = %#v", resp.APIKeyStats)
@@ -1308,7 +1310,7 @@ func TestAnalyticsSearchMatchesResolvedModelAndProjectID(t *testing.T) {
 		t.Fatalf("insert events: %v", err)
 	}
 
-	for _, query := range []string{"req-search-42", "search-new-fields", "gpt-resolved-search", "vertex-project-42"} {
+	for _, query := range []string{"req-search-42", testCanonicalHash("search-new-fields"), "gpt-resolved-search", "vertex-project-42"} {
 		resp, err := New(db).Analytics(ctx, Request{
 			FromMS:      fromMS,
 			ToMS:        toMS,
@@ -1318,7 +1320,7 @@ func TestAnalyticsSearchMatchesResolvedModelAndProjectID(t *testing.T) {
 		if err != nil {
 			t.Fatalf("analytics search %q: %v", query, err)
 		}
-		if resp.Events == nil || len(resp.Events.Items) != 1 || resp.Events.Items[0].EventHash != "search-new-fields" {
+		if resp.Events == nil || len(resp.Events.Items) != 1 || resp.Events.Items[0].EventHash != testCanonicalHash("search-new-fields") {
 			t.Fatalf("search %q events = %#v", query, resp.Events)
 		}
 	}
@@ -1357,7 +1359,7 @@ func TestAnalyticsSearchMatchesAccountSnapshotsWhenSourceIsMasked(t *testing.T) 
 		if resp.Summary == nil || resp.Summary.TotalCalls != 1 {
 			t.Fatalf("search %q summary = %#v", query, resp.Summary)
 		}
-		if resp.Events == nil || len(resp.Events.Items) != 1 || resp.Events.Items[0].EventHash != "search-account-alice" {
+		if resp.Events == nil || len(resp.Events.Items) != 1 || resp.Events.Items[0].EventHash != testCanonicalHash("search-account-alice") {
 			t.Fatalf("search %q events = %#v", query, resp.Events)
 		}
 	}
@@ -1420,7 +1422,7 @@ func TestAnalyticsAppliesMinLatencyFilter(t *testing.T) {
 	if resp.Summary == nil || resp.Summary.TotalCalls != 1 {
 		t.Fatalf("filtered latency summary = %#v", resp.Summary)
 	}
-	if resp.Events == nil || len(resp.Events.Items) != 1 || resp.Events.Items[0].EventHash != "latency-slow" {
+	if resp.Events == nil || len(resp.Events.Items) != 1 || resp.Events.Items[0].EventHash != testCanonicalHash("latency-slow") {
 		t.Fatalf("filtered latency events = %#v", resp.Events)
 	}
 }
@@ -1469,7 +1471,7 @@ func TestAnalyticsAppliesCacheStatusFilter(t *testing.T) {
 				t.Fatalf("filtered cache events = %#v", resp.Events)
 			}
 			for index, want := range tt.wantHashes {
-				if resp.Events.Items[index].EventHash != want {
+				if resp.Events.Items[index].EventHash != testCanonicalHash(want) {
 					t.Fatalf("event %d hash = %q, want %q; events = %#v", index, resp.Events.Items[index].EventHash, want, resp.Events)
 				}
 			}
@@ -1541,7 +1543,7 @@ func TestAnalyticsAppliesAccountFallbackFilter(t *testing.T) {
 	if resp.Summary == nil || resp.Summary.TotalCalls != 1 || resp.Summary.SuccessCalls != 1 {
 		t.Fatalf("summary = %#v", resp.Summary)
 	}
-	if resp.Events == nil || len(resp.Events.Items) != 1 || resp.Events.Items[0].EventHash != "account-alice" {
+	if resp.Events == nil || len(resp.Events.Items) != 1 || resp.Events.Items[0].EventHash != testCanonicalHash("account-alice") {
 		t.Fatalf("events = %#v", resp.Events)
 	}
 
@@ -1559,7 +1561,7 @@ func TestAnalyticsAppliesAccountFallbackFilter(t *testing.T) {
 	if resp.Summary == nil || resp.Summary.TotalCalls != 1 {
 		t.Fatalf("auth label summary = %#v", resp.Summary)
 	}
-	if resp.Events == nil || len(resp.Events.Items) != 1 || resp.Events.Items[0].EventHash != "account-alice" {
+	if resp.Events == nil || len(resp.Events.Items) != 1 || resp.Events.Items[0].EventHash != testCanonicalHash("account-alice") {
 		t.Fatalf("auth label events = %#v", resp.Events)
 	}
 }
@@ -1736,12 +1738,12 @@ func TestAnalyticsFilterSelectorsReturnLightweightOptions(t *testing.T) {
 	alice.AccountSnapshot = "alice@example.com"
 	alice.AuthProviderSnapshot = "codex"
 	alice.AuthFileSnapshot = "alice.json"
-	alice.APIKeyHash = "key-alice"
+	alice.APIKeyHash = testCanonicalHash("key-alice")
 	bob := monitoringEvent("selector-bob", fromMS+2_000, "gpt-b", "auth-b", "source-b", false, 10, 5, 0, 0, 15, nil)
 	bob.AccountSnapshot = "bob@example.com"
 	bob.AuthProviderSnapshot = "gemini"
 	bob.AuthFileSnapshot = "bob.json"
-	bob.APIKeyHash = "key-bob"
+	bob.APIKeyHash = testCanonicalHash("key-bob")
 	sourceOnly := monitoringEvent("selector-source-only", fromMS+3_000, "gpt-a", "", "source-only", false, 10, 5, 0, 0, 15, nil)
 	sourceOnly.AccountSnapshot = ""
 	sourceOnly.AuthLabelSnapshot = ""
@@ -1786,7 +1788,7 @@ func TestAnalyticsFilterSelectorsReturnLightweightOptions(t *testing.T) {
 	if !slices.Equal(resp.FilterOptions.Models, []string{"gpt-a", "gpt-b"}) {
 		t.Fatalf("models = %#v", resp.FilterOptions.Models)
 	}
-	if !slices.Equal(resp.FilterOptions.APIKeyHashes, []string{"key-alice", "key-bob"}) {
+	if !slices.Equal(resp.FilterOptions.APIKeyHashes, []string{testCanonicalHash("key-alice"), testCanonicalHash("key-bob")}) {
 		t.Fatalf("api key hashes = %#v", resp.FilterOptions.APIKeyHashes)
 	}
 	if !slices.Equal(resp.FilterOptions.Providers, []string{"codex", "gemini", "openai"}) {
@@ -1811,7 +1813,7 @@ func TestAnalyticsFilterSelectorsReturnLightweightOptions(t *testing.T) {
 	var sourceOnlySelector *AccountStatRow
 	for i := range resp.FilterOptions.AccountStats {
 		row := &resp.FilterOptions.AccountStats[i]
-		if slices.Contains(row.SourceHashes, "source-only") {
+		if slices.Contains(row.SourceHashes, testCanonicalHash("source-only")) {
 			sourceOnlySelector = row
 			break
 		}
@@ -1825,7 +1827,7 @@ func TestAnalyticsFilterSelectorsReturnLightweightOptions(t *testing.T) {
 	var sourceHashOnlySelector *AccountStatRow
 	for i := range resp.FilterOptions.AccountStats {
 		row := &resp.FilterOptions.AccountStats[i]
-		if slices.Contains(row.SourceHashes, "source-hash-only") {
+		if slices.Contains(row.SourceHashes, testCanonicalHash("source-hash-only")) {
 			sourceHashOnlySelector = row
 			break
 		}
@@ -1908,11 +1910,11 @@ func TestAnalyticsEventsPageUsesNormalizedTotalInput(t *testing.T) {
 	fromMS := int64(1_778_400_000_000)
 	events := []usage.Event{
 		{
-			EventHash: "xai-included", TimestampMS: fromMS + 1, Timestamp: "2026-05-06T00:00:00Z",
+			EventHash: testCanonicalHash("xai-included"), TimestampMS: fromMS + 1, Timestamp: "2026-05-06T00:00:00Z",
 			ExecutorType: "XAIExecutor", Model: "grok-4", InputTokens: 100, CacheReadTokens: 40, OutputTokens: 20, CreatedAtMS: fromMS + 1,
 		},
 		{
-			EventHash: "claude-separate", TimestampMS: fromMS + 2, Timestamp: "2026-05-06T00:00:01Z",
+			EventHash: testCanonicalHash("claude-separate"), TimestampMS: fromMS + 2, Timestamp: "2026-05-06T00:00:01Z",
 			ExecutorType: "ClaudeExecutor", Model: "claude-sonnet", InputTokens: 100, CacheReadTokens: 40, OutputTokens: 20, CreatedAtMS: fromMS + 2,
 		},
 	}
@@ -1937,7 +1939,7 @@ func TestAnalyticsEventsPageUsesNormalizedTotalInput(t *testing.T) {
 	for _, item := range resp.Events.Items {
 		inputs[item.EventHash] = item.InputTokens
 	}
-	if inputs["xai-included"] != 100 || inputs["claude-separate"] != 140 {
+	if inputs[testCanonicalHash("xai-included")] != 100 || inputs[testCanonicalHash("claude-separate")] != 140 {
 		t.Fatalf("normalized event inputs = %#v", inputs)
 	}
 }
@@ -3512,8 +3514,16 @@ func monitoringEvent(
 	totalTokens int64,
 	latencyMS *int64,
 ) usage.Event {
+	var apiKeyHash string
+	if authIndex != "" {
+		apiKeyHash = testCanonicalHash("api-key-" + authIndex)
+	}
+	var canonicalSourceHash string
+	if sourceHash != "" {
+		canonicalSourceHash = testCanonicalHash(sourceHash)
+	}
 	return usage.Event{
-		EventHash:       hash,
+		EventHash:       testCanonicalHash(hash),
 		TimestampMS:     timestampMS,
 		Timestamp:       time.UnixMilli(timestampMS).UTC().Format(time.RFC3339Nano),
 		Model:           model,
@@ -3522,8 +3532,8 @@ func monitoringEvent(
 		Path:            "/v1/chat/completions",
 		AuthIndex:       authIndex,
 		Source:          "user@example.com",
-		SourceHash:      sourceHash,
-		APIKeyHash:      "api-key-" + authIndex,
+		SourceHash:      canonicalSourceHash,
+		APIKeyHash:      apiKeyHash,
 		AccountSnapshot: "user@example.com",
 		InputTokens:     inputTokens,
 		OutputTokens:    outputTokens,
@@ -3547,4 +3557,12 @@ func historyTestKey(authFileSnapshot, authIndex, provider, accountSnapshot strin
 		panic("invalid account history test identity")
 	}
 	return key
+}
+
+func testCanonicalHash(hash string) string {
+	if usage.IsCanonicalSHA256Hex(hash) {
+		return hash
+	}
+	sum := sha256.Sum256([]byte(hash))
+	return hex.EncodeToString(sum[:])
 }

@@ -443,6 +443,10 @@ func (s *Store) InsertEvents(ctx context.Context, events []usage.Event) (InsertR
 	return s.UsageEvents.InsertBatch(ctx, events)
 }
 
+func (s *Store) ExistingUsageEventHashes(ctx context.Context, hashes []string) (map[string]struct{}, error) {
+	return s.UsageEvents.ExistingEventHashes(ctx, hashes)
+}
+
 func (s *Store) UsageCacheAccountingMigrationState(ctx context.Context) (DataMigrationState, error) {
 	state, found, err := s.DataMigrations.UsageCacheAccountingState(ctx)
 	if err != nil {

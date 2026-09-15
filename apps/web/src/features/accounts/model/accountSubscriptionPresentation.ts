@@ -16,6 +16,20 @@ export interface AccountSubscriptionPresentation {
   remainingDays: number | null;
 }
 
+/**
+ * Codex quota for list-card subscription presentation.
+ * Same input `buildAccountRows` uses for `subscriptionUntilMs` when AccountsPage
+ * passes `accountQuotaOverrides`: display/override quota only, including `undefined`
+ * when the override map omits the key. Never the live store quota.
+ */
+export const resolveAccountListSubscriptionQuota = (input: {
+  provider: string;
+  displayCodexQuota?: CodexQuotaState | null;
+}): CodexQuotaState | null | undefined => {
+  if (input.provider !== 'codex') return undefined;
+  return input.displayCodexQuota;
+};
+
 export const parseValidSubscriptionUntilMs = (value: unknown): number | null => {
   const numeric =
     typeof value === 'number'
@@ -39,7 +53,7 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
     : null;
 
 export const resolveCodexSubscriptionUntilMs = (
-  row: AccountRow,
+  row: Pick<AccountRow, 'provider' | 'raw'>,
   codexQuota?: CodexQuotaState | null
 ): {
   liveSubscriptionUntilMs: number | null;
@@ -82,7 +96,7 @@ export const resolveCodexSubscriptionUntilMs = (
 };
 
 export const buildAccountSubscriptionPresentation = (input: {
-  row: AccountRow;
+  row: Pick<AccountRow, 'provider' | 'planType' | 'raw'>;
   codexQuota?: CodexQuotaState | null;
   t?: TFunction;
   nowMs?: number;

@@ -2,6 +2,8 @@ package usagepricing_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"strings"
 	"testing"
@@ -531,8 +533,9 @@ func TestPricingAccountRollupSeparatesAnalyticsModelsSharingBillingModel(t *test
 }
 
 func pricingEvent(hash string, timestampMS int64, inputTokens int64) usage.Event {
+	sum := sha256.Sum256([]byte(hash))
 	return usage.Event{
-		EventHash:            hash,
+		EventHash:            hex.EncodeToString(sum[:]),
 		TimestampMS:          timestampMS,
 		Timestamp:            "1970-01-01T01:00:00Z",
 		Provider:             "openai",

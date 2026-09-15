@@ -139,6 +139,60 @@ describe('resolveAccountQuota', () => {
     });
   });
 
+  it('does not expose quota when plan is unknown even if positive on-demand limit exists', () => {
+    const file = { name: 'xai-unknown-payg.json', type: 'xai' } as AuthFileItem;
+    const stores = emptyStores();
+    stores.xaiQuota[file.name] = {
+      ...buildQuotaCredentialIdentity(file),
+      status: 'success',
+      billing: makeXaiBilling({
+        periodType: 'monthly',
+        monthlyLimitCents: null,
+        onDemandCapCents: 5_000,
+        onDemandUsedCents: 2_500,
+        onDemandUsedPercent: 50,
+        billingPeriodEnd: '2026-10-01T00:00:00Z',
+      }),
+    };
+
+    expect(resolveAccountQuota(file, stores)).toMatchObject({
+      status: 'unknown',
+      remainingPercent: null,
+      usedPercent: null,
+    });
+  });
+
+  it('keeps account quota summary fail-closed unknown for unconfirmed plan even with valid weekly observation (issue #744)', () => {
+    const file = { name: 'xai-issue-744.json', type: 'xai', planType: null } as AuthFileItem;
+    const stores = emptyStores();
+    stores.xaiQuota[file.name] = {
+      ...buildQuotaCredentialIdentity(file),
+      status: 'success',
+      billing: makeXaiBilling({
+        periodType: 'weekly',
+        usagePercent: 2.0,
+        periodStart: '2026-09-11T13:42:16.586061+00:00',
+        periodEnd: '2026-09-18T13:42:16.586061+00:00',
+        productUsage: [{ product: 'GrokBuild', usagePercent: 2.0 }],
+        monthlyLimitCents: 0,
+        usedCents: 0,
+        includedUsedCents: 0,
+        onDemandCapCents: 0,
+        onDemandUsedCents: 0,
+        onDemandUsedPercent: null,
+        billingPeriodEnd: '2026-10-01T00:00:00Z',
+        usedPercent: 0,
+      }),
+    };
+
+    expect(resolveAccountQuota(file, stores)).toMatchObject({
+      status: 'unknown',
+      remainingPercent: null,
+      usedPercent: null,
+      planType: null,
+    });
+  });
+
   it('does not expose billing quota for an explicitly Free xAI plan even with positive on-demand cap', () => {
     const file = { name: 'xai-free-payg.json', type: 'xai', planType: 'free' } as AuthFileItem;
     const stores = emptyStores();

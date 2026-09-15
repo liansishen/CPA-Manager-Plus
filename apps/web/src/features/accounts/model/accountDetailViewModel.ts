@@ -22,7 +22,10 @@ import {
   type AccountListHealthStatusKey,
   type AccountListPresentationItem,
 } from './accountListPresentation';
-import { summarizeGroupedQuotaAvailability } from './accountQuotaSummary';
+import {
+  isConfirmedPaidXaiPlan,
+  summarizeGroupedQuotaAvailability,
+} from './accountQuotaSummary';
 import {
   inferAccountQuotaWindowKind,
   type AccountQuotaDisplayWindow,
@@ -1383,7 +1386,11 @@ export const buildAccountDetailViewModel = (
     }
   );
   const accountQuotaWindows =
-    row.provider === 'codex' ? quotaWindows.filter(isCodexMainQuotaWindow) : quotaWindows;
+    row.provider === 'codex'
+      ? quotaWindows.filter(isCodexMainQuotaWindow)
+      : row.provider === 'xai' && !isConfirmedPaidXaiPlan(row.planType)
+        ? []
+        : quotaWindows;
   const listItem = buildAccountListItem(row, {
     t: options.t,
     recommendation,

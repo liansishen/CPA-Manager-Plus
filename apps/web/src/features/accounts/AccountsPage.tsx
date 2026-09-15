@@ -222,7 +222,10 @@ import {
   type AccountsView,
   type DetailTab,
 } from '@/features/accounts/model/accountsPagePresentation';
-import { buildAccountSubscriptionPresentation } from '@/features/accounts/model/accountSubscriptionPresentation';
+import {
+  buildAccountSubscriptionPresentation,
+  resolveAccountListSubscriptionQuota,
+} from '@/features/accounts/model/accountSubscriptionPresentation';
 import { resolveAccountQuotaWindowUsageAndForecast } from '@/features/accounts/model/accountQuotaWindowUsagePresentation';
 import { formatCompactNumber, formatCompactUsd, formatUsd } from '@/utils/usage';
 import {
@@ -8457,12 +8460,17 @@ export function AccountsPage() {
       quotaWindows,
       requestEvidence: requestEvidenceBySelectionKey.get(row.selectionKey),
     });
-    const codexQuotaState =
-      row.provider === CODEX_CONFIG.type ? getActiveCodexQuota(row.raw) : undefined;
+    const displayCodexQuota =
+      row.provider === CODEX_CONFIG.type ? getDisplayCodexQuota(row.raw) : undefined;
     const subscriptionPresentation = buildAccountSubscriptionPresentation({
       row,
-      codexQuota: codexQuotaState,
+      codexQuota: resolveAccountListSubscriptionQuota({
+        provider: row.provider,
+        displayCodexQuota,
+      }),
     });
+    const codexQuotaState =
+      row.provider === CODEX_CONFIG.type ? getActiveCodexQuota(row.raw) : undefined;
     const codexResetCreditsCount =
       codexQuotaState?.rateLimitResetCreditsAvailableCount ??
       codexQuotaState?.rateLimitResetCredits?.length ??

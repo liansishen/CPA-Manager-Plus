@@ -916,7 +916,7 @@ describe('accountQuotaDisplayWindows', () => {
     ).toEqual([]);
   });
 
-  it('does not create xAI quota windows from weekly protobuf zero placeholders', () => {
+  it('does not create a monthly window from weekly protobuf zero placeholders', () => {
     const stores = {
       ...emptyStores(),
       xaiQuota: {
@@ -948,7 +948,137 @@ describe('accountQuotaDisplayWindows', () => {
       t,
     });
 
-    expect(windows).toEqual([]);
+    expect(windows.map((window) => window.key)).toEqual(['credits-period']);
+    expect(windows[0]).toMatchObject({
+      key: 'credits-period',
+      kind: 'weekly',
+      remainingPercent: 100,
+      usedPercent: 0,
+    });
+  });
+
+  it('creates weekly and product quota windows for unknown plan with valid weekly observation (issue #744)', () => {
+    const stores = {
+      ...emptyStores(),
+      xaiQuota: {
+        'xai.json': {
+          status: 'success',
+          billing: {
+            periodType: 'weekly',
+            usagePercent: 2.0,
+            periodStart: '2026-09-11T13:42:16.586061+00:00',
+            periodEnd: '2026-09-18T13:42:16.586061+00:00',
+            productUsage: [{ product: 'GrokBuild', usagePercent: 2.0 }],
+            monthlyLimitCents: 0,
+            usedCents: 0,
+            includedUsedCents: 0,
+            onDemandCapCents: 0,
+            onDemandUsedCents: 0,
+            onDemandUsedPercent: null,
+            billingPeriodEnd: '2026-10-01T00:00:00Z',
+            usedPercent: 0,
+          },
+        },
+      },
+    } satisfies AccountQuotaStores;
+    const row = buildRow({ name: 'xai.json', type: 'xai', planType: null }, stores);
+
+    const windows = buildAccountQuotaDisplayWindows(row, {
+      stores,
+      translateQuotaWindowLabel,
+      t,
+    });
+
+    expect(windows.map((w) => w.key)).toEqual(['credits-period', 'product-0-grokbuild']);
+    expect(windows[0]).toMatchObject({
+      key: 'credits-period',
+      kind: 'weekly',
+      remainingPercent: 98,
+      usedPercent: 2,
+    });
+    expect(windows[1]).toMatchObject({
+      key: 'product-0-grokbuild',
+      kind: 'product',
+      label: 'GrokBuild',
+      remainingPercent: 98,
+      usedPercent: 2,
+    });
+    expect(windows.some((w) => w.key === 'billing')).toBe(false);
+    expect(windows.some((w) => w.key === 'pay-as-you-go')).toBe(false);
+  });
+
+  it('creates weekly quota window with 0% remaining when unknown plan weekly usage is 100%', () => {
+    const stores = {
+      ...emptyStores(),
+      xaiQuota: {
+        'xai.json': {
+          status: 'success',
+          billing: {
+            periodType: 'weekly',
+            usagePercent: 100,
+            periodStart: '2026-09-11T13:42:16.586061+00:00',
+            periodEnd: '2026-09-18T13:42:16.586061+00:00',
+            productUsage: [],
+            monthlyLimitCents: 0,
+            usedCents: 0,
+            includedUsedCents: 0,
+            onDemandCapCents: 0,
+            onDemandUsedCents: 0,
+            onDemandUsedPercent: null,
+            billingPeriodEnd: '2026-10-01T00:00:00Z',
+            usedPercent: 0,
+          },
+        },
+      },
+    } satisfies AccountQuotaStores;
+    const row = buildRow({ name: 'xai.json', type: 'xai', planType: null }, stores);
+
+    const windows = buildAccountQuotaDisplayWindows(row, {
+      stores,
+      translateQuotaWindowLabel,
+      t,
+    });
+
+    expect(windows.map((w) => w.key)).toEqual(['credits-period']);
+    expect(windows[0]).toMatchObject({
+      key: 'credits-period',
+      kind: 'weekly',
+      remainingPercent: 0,
+      usedPercent: 100,
+    });
+  });
+
+  it('does not create quota windows for unknown plan when only PAYG limits exist', () => {
+    const stores = {
+      ...emptyStores(),
+      xaiQuota: {
+        'xai.json': {
+          status: 'success',
+          billing: {
+            periodType: 'weekly',
+            usagePercent: null,
+            productUsage: [],
+            monthlyLimitCents: 0,
+            usedCents: 0,
+            includedUsedCents: 0,
+            onDemandCapCents: 5_000,
+            onDemandUsedCents: 2_500,
+            onDemandUsedPercent: 50,
+            billingPeriodEnd: '2026-07-31T00:00:00Z',
+            usedPercent: 0,
+          },
+        },
+      },
+    } satisfies AccountQuotaStores;
+    const row = buildRow({ name: 'xai.json', type: 'xai', planType: null }, stores);
+
+    expect(
+      buildAccountQuotaDisplayWindows(row, {
+        stores,
+        translateQuotaWindowLabel,
+        t,
+      })
+    ).toEqual([]);
   });
 
   it('does not create xAI quota windows from unknown weekly usage or monthly billing reset', () => {

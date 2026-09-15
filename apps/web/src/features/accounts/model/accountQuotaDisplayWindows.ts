@@ -24,6 +24,7 @@ import {
 import type { AccountRow } from './accountRows';
 import {
   hasConfirmedXaiBillingEntitlement,
+  isExplicitFreeXaiPlan,
   type AccountQuotaStores,
 } from './accountQuotaSummary';
 
@@ -646,11 +647,22 @@ const buildXaiQuotaDisplayWindows = (
 ): AccountQuotaDisplayWindow[] => {
   const quota = getCredentialScopedQuotaState(options.stores.xaiQuota, row.raw);
   const billing = quota?.billing;
-  if (
-    !billing ||
-    billing.officialApiHealth ||
-    !hasConfirmedXaiBillingEntitlement(billing, row.planType)
-  ) {
+  if (!billing || billing.officialApiHealth || isExplicitFreeXaiPlan(row.planType)) {
+    return [];
+  }
+
+  const confirmedBillingEntitlement = hasConfirmedXaiBillingEntitlement(billing, row.planType);
+  const hasObservedWeeklyUsage =
+    billing.periodType === 'weekly' &&
+    typeof billing.usagePercent === 'number' &&
+    Number.isFinite(billing.usagePercent);
+  const hasObservedProductUsage =
+    Array.isArray(billing.productUsage) &&
+    billing.productUsage.some(
+      (product) => typeof product.usagePercent === 'number' && Number.isFinite(product.usagePercent)
+    );
+
+  if (!confirmedBillingEntitlement && !hasObservedWeeklyUsage && !hasObservedProductUsage) {
     return [];
   }
 
@@ -678,7 +690,11 @@ const buildXaiQuotaDisplayWindows = (
       : null;
   const hasLegacyMonthlyWindow = monthlyUsedPercent !== null || billing.monthlyLimitCents !== null;
 
-  if (billing.periodType === 'weekly' || (billing.productUsage?.length ?? 0) > 0) {
+  const showCreditsPeriod = confirmedBillingEntitlement
+    ? billing.periodType === 'weekly' || (billing.productUsage?.length ?? 0) > 0
+    : hasObservedWeeklyUsage;
+
+  if (showCreditsPeriod) {
     windows.push(
       buildAccountQuotaDisplayWindow({
         key: 'credits-period',
@@ -700,7 +716,7 @@ const buildXaiQuotaDisplayWindows = (
     );
   }
 
-  if (hasLegacyMonthlyWindow) {
+  if (confirmedBillingEntitlement && hasLegacyMonthlyWindow) {
     windows.push(
       buildAccountQuotaDisplayWindow({
         key: 'billing',
@@ -720,7 +736,7 @@ const buildXaiQuotaDisplayWindows = (
   }
 
   const onDemandCap = billing.onDemandCapCents ?? 0;
-  if (onDemandCap > 0) {
+  if (confirmedBillingEntitlement && onDemandCap > 0) {
     const paygUsedPercent =
       typeof billing.onDemandUsedPercent === 'number' &&
       Number.isFinite(billing.onDemandUsedPercent)
@@ -749,6 +765,9 @@ const buildXaiQuotaDisplayWindows = (
       typeof product.usagePercent === 'number' && Number.isFinite(product.usagePercent)
         ? clampDisplayPercent(product.usagePercent)
         : null;
+    if (!confirmedBillingEntitlement && productUsedPercent === null) {
+      return;
+    }
     windows.push(
       buildAccountQuotaDisplayWindow({
         key: `product-${index}-${product.product

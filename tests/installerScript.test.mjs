@@ -6045,6 +6045,7 @@ exit 22
 
   it('rejects a symlinked CPA import pending state without touching its target', () => {
     const installDir = mkdtempSync(path.join(os.tmpdir(), 'cpamp-installer-'));
+    const fakeBin = mkdtempSync(path.join(os.tmpdir(), 'cpamp-installer-bin-'));
     const externalDir = mkdtempSync(path.join(os.tmpdir(), 'cpamp-external-state-'));
     const externalState = path.join(externalDir, 'pending-state');
     const pendingPath = path.join(installDir, 'secrets/cpa-connection-import.pending');
@@ -6063,6 +6064,7 @@ exit 22
       writeFileSync(externalState, 'external-state-content\n');
       chmodSync(externalState, 0o640);
       symlinkSync(externalState, pendingPath);
+      writeFakeDocker(fakeBin);
 
       const result = spawnSync('bash', [installerPath], {
         cwd: repoRoot,
@@ -6073,6 +6075,7 @@ exit 22
           CPAMP_CONFIRM: '1',
           CPAMP_LANG: 'en-US',
           CPAMP_INSTALL_DIR: installDir,
+          PATH: `${fakeBin}${path.delimiter}${process.env.PATH || ''}`,
         },
         encoding: 'utf8',
       });
@@ -6084,6 +6087,7 @@ exit 22
       expect(lstatSync(pendingPath).isSymbolicLink()).toBe(true);
     } finally {
       rmSync(installDir, { recursive: true, force: true });
+      rmSync(fakeBin, { recursive: true, force: true });
       rmSync(externalDir, { recursive: true, force: true });
     }
   });

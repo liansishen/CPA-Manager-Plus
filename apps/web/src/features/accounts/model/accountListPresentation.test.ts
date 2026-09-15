@@ -57,6 +57,7 @@ const makeRow = (overrides: AccountRowOverrides = {}): AccountRow => {
     inspection: null,
     raw,
     ...rowOverrides,
+    subscriptionUntilMs: rowOverrides.subscriptionUntilMs ?? null,
   };
 };
 
@@ -1534,5 +1535,79 @@ describe('accountListPresentation', () => {
     expect(item.health.status).toBe('available');
     expect(item.health.labelKey).toBe('accounts.health_available');
     expect(item.health.reasonKey).toBe('accounts.health_reason_available');
+  });
+
+  it('does not degrade xAI account health from informational quota windows when plan is unconfirmed', () => {
+    const row = makeRow({
+      provider: 'xai',
+      fileName: 'xai.json',
+      planType: null,
+      quota: {
+        status: 'unknown',
+        remainingPercent: null,
+        usedPercent: null,
+      },
+    });
+
+    const item = buildAccountListItem(row, {
+      quotaWindows: [
+        {
+          key: 'credits-period',
+          label: 'Weekly credits',
+          kind: 'weekly',
+          remainingPercent: 98,
+          usedPercent: 2,
+          resetLabel: '2026-09-18T00:00:00Z',
+          resetAtMs: Date.parse('2026-09-18T00:00:00Z'),
+          resetAccuracy: 'exact',
+        },
+        {
+          key: 'product-0-grokbuild',
+          label: 'GrokBuild',
+          kind: 'product',
+          remainingPercent: 98,
+          usedPercent: 2,
+          resetLabel: '2026-09-18T00:00:00Z',
+          resetAtMs: Date.parse('2026-09-18T00:00:00Z'),
+          resetAccuracy: 'exact',
+        },
+      ],
+    });
+
+    expect(item.health.status).not.toBe('weekly_exhausted');
+    expect(item.health.status).not.toBe('limited');
+    expect(item.recommendation.hasRecommendation).toBe(false);
+  });
+
+  it('does not mark whole xAI account exhausted when plan is unconfirmed and weekly remaining is 0%', () => {
+    const row = makeRow({
+      provider: 'xai',
+      fileName: 'xai.json',
+      planType: null,
+      quota: {
+        status: 'unknown',
+        remainingPercent: null,
+        usedPercent: null,
+      },
+    });
+
+    const item = buildAccountListItem(row, {
+      quotaWindows: [
+        {
+          key: 'credits-period',
+          label: 'Weekly credits',
+          kind: 'weekly',
+          remainingPercent: 0,
+          usedPercent: 100,
+          resetLabel: '2026-09-18T00:00:00Z',
+          resetAtMs: Date.parse('2026-09-18T00:00:00Z'),
+          resetAccuracy: 'exact',
+        },
+      ],
+    });
+
+    expect(item.health.status).not.toBe('weekly_exhausted');
+    expect(item.health.status).not.toBe('limited');
+    expect(item.recommendation.hasRecommendation).toBe(false);
   });
 });

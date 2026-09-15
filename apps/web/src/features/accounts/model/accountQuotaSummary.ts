@@ -557,6 +557,9 @@ export const isConfirmedPaidXaiPlan = (planType?: string | null): boolean => {
   );
 };
 
+// Billing and account entitlement requires a confirmed paid plan.
+// AccountQuotaSummary fails closed for unconfirmed/unknown plans to avoid
+// driving account-level operational health or disable recommendations from partial data.
 export const hasConfirmedXaiBillingEntitlement = (
   billing: XaiBillingSummary | null | undefined,
   planType?: string | null

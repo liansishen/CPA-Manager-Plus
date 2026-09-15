@@ -322,6 +322,9 @@ func (s *Service) Sync(ctx context.Context, req SyncRequest) (SyncResult, error)
 	if err != nil {
 		return SyncResult{}, err
 	}
+	for _, modelID := range result.Preserved {
+		delete(selection.Matched, modelID)
+	}
 	if result.Imported > 0 {
 		s.notifyPricesChanged()
 	}

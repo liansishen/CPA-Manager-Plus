@@ -69,6 +69,7 @@ const makeRow = (overrides: AccountRowOverrides = {}): AccountRow => {
     inspection: null,
     raw,
     ...rowOverrides,
+    subscriptionUntilMs: rowOverrides.subscriptionUntilMs ?? null,
   };
 };
 
@@ -1879,6 +1880,58 @@ describe('accountDetailViewModel', () => {
       value: 'xai_quota.official_api_health',
       valueKind: 'i18n',
     });
+  });
+
+  it('exposes informational weekly and product windows for unconfirmed xAI plan without degrading health (issue #744)', () => {
+    const row = makeRow({
+      provider: 'xai',
+      fileName: 'xai-issue-744.json',
+      planType: null,
+      quota: {
+        status: 'unknown',
+        remainingPercent: null,
+        usedPercent: null,
+      },
+    });
+    const quotaWindows = [
+      {
+        key: 'credits-period',
+        label: 'Weekly credits',
+        kind: 'weekly' as const,
+        remainingPercent: 98,
+        usedPercent: 2,
+        resetLabel: '2026-09-18T00:00:00Z',
+        resetAtMs: Date.parse('2026-09-18T00:00:00Z'),
+        resetAccuracy: 'exact' as const,
+      },
+      {
+        key: 'product-0-grokbuild',
+        label: 'GrokBuild',
+        kind: 'product' as const,
+        remainingPercent: 98,
+        usedPercent: 2,
+        resetLabel: '2026-09-18T00:00:00Z',
+        resetAtMs: Date.parse('2026-09-18T00:00:00Z'),
+        resetAccuracy: 'exact' as const,
+      },
+    ];
+
+    const viewModel = buildAccountDetailViewModel(row, { quotaWindows });
+
+    expect(viewModel.quota.windows).toHaveLength(2);
+    expect(viewModel.quota.windows[0]).toMatchObject({
+      key: 'credits-period',
+      remainingPercent: 98,
+      usedPercent: 2,
+    });
+    expect(viewModel.quota.windows[1]).toMatchObject({
+      key: 'product-0-grokbuild',
+      remainingPercent: 98,
+      usedPercent: 2,
+    });
+    expect(viewModel.health.status).not.toBe('weekly_exhausted');
+    expect(viewModel.health.status).not.toBe('limited');
+    expect(viewModel.strategy.recommendation).toBeNull();
   });
 
   it('keeps raw secrets and candidate evidence out of the drawer contract', () => {
