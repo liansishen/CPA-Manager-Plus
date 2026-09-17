@@ -617,4 +617,25 @@ describe('RealtimeEventsPanel', () => {
     expect(markup).toContain('Loaded 500 of 500 events');
     expect(markup).toContain('Load more');
   });
+
+  it('does not display opaque source identity as primary title when readable metadata is available (#781)', () => {
+    const validHash = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+    const markup = renderPanel(
+      baseRow({
+        provider: 'codex',
+        channel: 'codex',
+        channelHost: 'api.codex.example.com',
+        source: `h:${validHash}`,
+        sourceMasked: `h:${validHash}`,
+        apiKeyHash: 'aabbccddeeff0011',
+        apiKeyLabel: 'Production Key',
+        apiKeyMasked: 'sk-...0011',
+      })
+    );
+
+    expect(markup).toContain('<span>api.codex.example.com</span>');
+    expect(markup).toContain('API Key: Production Key');
+    expect(markup).not.toContain(`<span>h:${validHash}</span>`);
+    expect(markup).not.toContain('<span>k:');
+  });
 });

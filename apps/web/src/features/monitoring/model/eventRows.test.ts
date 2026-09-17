@@ -3,6 +3,7 @@ import { buildRealtimeSourceDisplay } from '@/features/monitoring/realtimeSource
 import type { MonitoringAuthMeta } from './types';
 import type { ModelPrice, UsageDetailWithEndpoint } from '@/utils/usage';
 import { buildSourceInfoMap } from '@/utils/sourceResolver';
+import { sha256Hex } from '@/utils/apiKeyHash';
 import { buildEventRows } from './eventRows';
 
 const buildRows = (
@@ -422,5 +423,167 @@ describe('buildEventRows', () => {
     expect(row.channel).toBe('kuaileshifu');
     expect(display.primary).toBe('kuaileshifu #1');
     expect(display.meta).toBe('Provider: openai');
+  });
+
+  it('resolves canonical h:<sha256> usage source to configured provider display name and identityKey (#781)', () => {
+    const apiKey = 'sk-proj-codex-event-row-test-credential-secret-key';
+    const hashedKey = sha256Hex(apiKey);
+    const sourceInfoMap = buildSourceInfoMap({
+      codexApiKeys: [
+        {
+          apiKey,
+          baseUrl: 'https://api.codex-row.example/v1',
+        },
+      ],
+    });
+
+    const [row] = buildEventRows(
+      [
+        {
+          timestamp: '2026-05-19T10:00:00Z',
+          source: `h:${hashedKey}`,
+          source_hash: hashedKey,
+          auth_index: '',
+          provider: 'codex',
+          latency_ms: 1000,
+          tokens: {
+            input_tokens: 10,
+            output_tokens: 20,
+            total_tokens: 30,
+          },
+          failed: false,
+          __modelName: 'gpt-5.4',
+          __endpoint: 'POST /v1/chat/completions',
+          __endpointMethod: 'POST',
+          __endpointPath: '/v1/chat/completions',
+          __timestampMs: Date.parse('2026-05-19T10:00:00Z'),
+        },
+      ],
+      new Map(),
+      new Map(),
+      sourceInfoMap,
+      new Map(),
+      {},
+      new Map()
+    );
+
+    expect(row.source).toBe('api.codex-row.example');
+    expect(row.sourceKey).toBe('codex:0');
+    expect(row.source).not.toContain('k:');
+    expect(row.source).not.toContain('h:');
+  });
+
+  it('outputs the same sourceKey for legacy masked and new hashed source representations', () => {
+    const apiKey = 'sk-proj-same-key-across-versions-0987654321';
+    const hashedKey = sha256Hex(apiKey);
+    const sourceInfoMap = buildSourceInfoMap({
+      codexApiKeys: [
+        {
+          apiKey,
+          baseUrl: 'https://api.same-key.example/v1',
+        },
+      ],
+    });
+
+    const buildSingle = (source: string) =>
+      buildEventRows(
+        [
+          {
+            timestamp: '2026-05-19T10:00:00Z',
+            source,
+            auth_index: '',
+            provider: 'codex',
+            latency_ms: 1000,
+            tokens: { input_tokens: 10 },
+            failed: false,
+            __modelName: 'gpt-5.4',
+            __endpoint: 'POST /v1/chat/completions',
+            __endpointMethod: 'POST',
+            __endpointPath: '/v1/chat/completions',
+            __timestampMs: Date.parse('2026-05-19T10:00:00Z'),
+          },
+        ],
+        new Map(),
+        new Map(),
+        sourceInfoMap,
+        new Map(),
+        {},
+        new Map()
+      )[0];
+
+    const legacyRow = buildSingle('m:sk-p...4321');
+    const hashedRow = buildSingle(`h:${hashedKey}`);
+
+    expect(legacyRow.sourceKey).toBe('codex:0');
+    expect(hashedRow.sourceKey).toBe('codex:0');
+    expect(hashedRow.sourceKey).toBe(legacyRow.sourceKey);
+    expect(hashedRow.source).toBe(legacyRow.source);
+  });
+
+  it('preserves underlying row contract while displaying credential account for unknown provider (#686)', () => {
+    const authMetaMap = new Map<string, MonitoringAuthMeta>([
+      [
+        'workbuddy-auth-1',
+        {
+          authIndex: 'workbuddy-auth-1',
+          label: 'workbuddy',
+          account: 'marscosmo',
+          provider: 'workbuddy',
+          status: 'active',
+          disabled: false,
+          unavailable: false,
+          runtimeOnly: false,
+          planType: '-',
+          updatedAt: '',
+        },
+      ],
+    ]);
+
+    const [row] = buildEventRows(
+      [
+        {
+          timestamp: '2026-05-19T10:00:00Z',
+          source: 'workbuddy',
+          auth_index: 'workbuddy-auth-1',
+          account_snapshot: 'marscosmo',
+          auth_label_snapshot: 'workbuddy',
+          auth_provider_snapshot: 'workbuddy',
+          provider: 'workbuddy',
+          latency_ms: 1000,
+          tokens: { input_tokens: 10, output_tokens: 20, total_tokens: 30 },
+          failed: false,
+          __modelName: 'claude-3-7-sonnet',
+          __endpoint: 'POST /v1/messages',
+          __endpointMethod: 'POST',
+          __endpointPath: '/v1/messages',
+          __timestampMs: Date.parse('2026-05-19T10:00:00Z'),
+        },
+      ],
+      authMetaMap,
+      new Map(),
+      buildSourceInfoMap({}),
+      new Map(),
+      {},
+      new Map()
+    );
+
+    expect(row.provider).toBe('workbuddy');
+    expect(row.channel).toBe('workbuddy');
+    expect(row.source).toBe('workbuddy');
+    expect(row.account).toBe('marscosmo');
+
+    const t = ((key: string) => {
+      if (key === 'monitoring.filter_provider') return 'Provider';
+      if (key === 'monitoring.column_host') return 'Host';
+      if (key === 'monitoring.source') return 'Source';
+      return key;
+    }) as Parameters<typeof buildRealtimeSourceDisplay>[1];
+
+    const display = buildRealtimeSourceDisplay(row, t);
+
+    expect(display.primary).toBe('marscosmo');
+    expect(display.meta).toBe('Provider: workbuddy');
+    expect(row.searchText).toContain('workbuddy');
+    expect(row.searchText).toContain('marscosmo');
   });
 });

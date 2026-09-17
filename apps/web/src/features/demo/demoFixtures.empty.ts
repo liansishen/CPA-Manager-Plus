@@ -35,6 +35,12 @@ export const getDemoModelPriceUsageSummary = () => ({
   truncated: false,
   models: [],
 });
+export const getDemoRuntimeModelPricingStatus = () => ({
+  models: [],
+  unpricedModels: [],
+  count: 0,
+  unpricedCount: 0,
+});
 export const getDemoUsagePayload = () => emptyObject;
 export const getDemoUsageServiceInfo = () => emptyObject;
 export const getDemoUsageServiceStatus = () => emptyObject;

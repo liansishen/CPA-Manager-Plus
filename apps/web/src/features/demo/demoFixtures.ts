@@ -16,6 +16,7 @@ import type {
   MonitoringAnalyticsRequest,
   MonitoringAnalyticsResponse,
   QuotaCooldownInfo,
+  RuntimeModelPricingStatusResponse,
   UsageHeaderSnapshotsResponse,
   UsageServiceInfo,
   UsageServiceStatus,
@@ -5674,6 +5675,15 @@ export const getDemoAccountWindowUsage = (
 };
 export const getDemoModelPrices = () => clone(demoModelPrices);
 export const getDemoModelPriceUsageSummary = () => clone(demoModelPriceUsageSummary);
+export const getDemoRuntimeModelPricingStatus = (): RuntimeModelPricingStatusResponse => {
+  const models = Object.keys(demoModelPrices.prices).sort();
+  return {
+    models,
+    unpricedModels: [],
+    count: models.length,
+    unpricedCount: 0,
+  };
+};
 export const getDemoUsagePayload = () => {
   const dashboard = dashboardBase();
   return {

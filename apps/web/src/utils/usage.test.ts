@@ -14,11 +14,13 @@ import {
   formatUsd,
   getServiceTierMultiplier,
   inferCacheInputMode,
+  isOpaqueUsageSourceId,
   loadModelPrices,
   normalizeAnalyticsModel,
   normalizeCacheAccounting,
   normalizeUsageSourceId,
 } from './usage';
+import { sha256Hex } from './apiKeyHash';
 import { maskSensitiveText } from './format';
 import cacheInputAccountingFixtures from './cacheInputAccounting.fixtures.json';
 
@@ -155,6 +157,52 @@ describe('usage source candidates', () => {
 
   it('preserves legacy UI-masked source IDs when no raw secret is present', () => {
     expect(normalizeUsageSourceId('m:sk******ef')).toBe('m:sk******ef');
+  });
+
+  it('preserves canonical hashed sources without converting them to k:', () => {
+    const validHash = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+    const normalized = normalizeUsageSourceId(`h:${validHash}`);
+    expect(normalized).toBe(`h:${validHash}`);
+    expect(normalized).not.toMatch(/^k:/);
+  });
+
+  it('canonicalizes uppercase hashed sources to lowercase', () => {
+    const mixedCase = '0123456789ABCDEF0123456789abcdef0123456789ABCDEF0123456789abcdef';
+    const expected = mixedCase.toLowerCase();
+    expect(normalizeUsageSourceId(`h:${mixedCase}`)).toBe(`h:${expected}`);
+  });
+
+  it('does not trust malformed h: sources that contain raw secrets', () => {
+    const rawSecret = 'sk-proj-malformed-secret-token-1234567890';
+    const normalized = normalizeUsageSourceId(`h:${rawSecret}`);
+    expect(normalized).toMatch(/^k:/);
+    expect(normalized).not.toContain(rawSecret);
+    expect(normalized).not.toBe(`h:${rawSecret}`);
+  });
+
+  it('includes h:<sha256(apiKey)> candidate alongside legacy candidates', () => {
+    const apiKey = 'sk-proj-test-long-and-strong-credential-key-value-123456';
+    const candidates = buildCandidateUsageSourceIds({ apiKey });
+    const expectedHash = sha256Hex(apiKey);
+
+    expect(candidates).toContain(`h:${expectedHash}`);
+    expect(candidates.some((c) => c.startsWith('k:'))).toBe(true);
+    expect(candidates.some((c) => c.startsWith('m:'))).toBe(true);
+    expect(candidates).not.toContain(apiKey);
+  });
+
+  it('identifies opaque usage source identities correctly', () => {
+    expect(
+      isOpaqueUsageSourceId('h:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef')
+    ).toBe(true);
+    expect(isOpaqueUsageSourceId('k:0123456789abcdef')).toBe(true);
+    expect(isOpaqueUsageSourceId('m:sk-1...cdef')).toBe(true);
+    expect(isOpaqueUsageSourceId('m:sk******ef')).toBe(true);
+    expect(isOpaqueUsageSourceId('t:codex')).toBe(false);
+    expect(isOpaqueUsageSourceId('codex')).toBe(false);
+    expect(isOpaqueUsageSourceId('api.example.com')).toBe(false);
+    expect(isOpaqueUsageSourceId('h:not-a-64-char-hex')).toBe(false);
+    expect(isOpaqueUsageSourceId('')).toBe(false);
   });
 });
 

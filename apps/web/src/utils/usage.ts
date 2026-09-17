@@ -3,6 +3,7 @@ import { maskApiKey } from './format';
 import { normalizeAuthIndex } from './authIndex';
 import { parseTimestampMs } from './timestamp';
 import { normalizeAnalyticsModel } from './analyticsModel';
+import { sha256Hex } from './apiKeyHash';
 
 export { normalizeAuthIndex };
 export { normalizeAnalyticsModel } from './analyticsModel';
@@ -270,9 +271,12 @@ export interface DurationFormatOptions {
 const TOKENS_PER_PRICE_UNIT = 1_000_000;
 const MODEL_PRICE_STORAGE_KEY = 'cli-proxy-model-prices-v2';
 const USAGE_ENDPOINT_METHOD_REGEX = /^(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s+(\S+)/i;
-const USAGE_SOURCE_PREFIX_KEY = 'k:';
-const USAGE_SOURCE_PREFIX_MASKED = 'm:';
-const USAGE_SOURCE_PREFIX_TEXT = 't:';
+export const USAGE_SOURCE_PREFIX_KEY = 'k:';
+export const USAGE_SOURCE_PREFIX_HASH = 'h:';
+export const USAGE_SOURCE_PREFIX_MASKED = 'm:';
+export const USAGE_SOURCE_PREFIX_TEXT = 't:';
+const CANONICAL_HASHED_SOURCE_REGEX = /^h:[0-9a-fA-F]{64}$/;
+const FNV_KEY_SOURCE_REGEX = /^k:[0-9a-fA-F]{16}$/;
 const KEY_LIKE_TOKEN_REGEX =
   /(sk-proj-[A-Za-z0-9-_]{6,}|sk-ant-[A-Za-z0-9-_]{6,}|sk-[A-Za-z0-9-_]{6,}|sess-[A-Za-z0-9-_]{6,}|ghp_[A-Za-z0-9]{6,}|github_pat_[A-Za-z0-9_]{20,}|AIza[0-9A-Za-z-_]{8,}|hf_[A-Za-z0-9]{6,}|pk_[A-Za-z0-9]{6,}|rk_[A-Za-z0-9]{6,})/;
 const MASKED_TOKEN_HINT_REGEX = /^[^\s]{1,24}(\*{2,}|\.{3})[^\s]{1,24}$/;
@@ -701,6 +705,21 @@ export function maskUsageSecretSource(secret: string): string {
   return `${trimmed.slice(0, 4)}...${trimmed.slice(-4)}`;
 }
 
+export function isOpaqueUsageSourceId(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (CANONICAL_HASHED_SOURCE_REGEX.test(trimmed)) return true;
+  if (FNV_KEY_SOURCE_REGEX.test(trimmed)) return true;
+  if (
+    trimmed.startsWith(USAGE_SOURCE_PREFIX_MASKED) &&
+    trimmed.length > USAGE_SOURCE_PREFIX_MASKED.length
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export function normalizeUsageSourceId(
   value: unknown,
   masker: (val: string) => string = maskApiKey
@@ -709,6 +728,9 @@ export function normalizeUsageSourceId(
     typeof value === 'string' ? value : value === null || value === undefined ? '' : String(value);
   const trimmed = raw.trim();
   if (!trimmed) return '';
+  if (CANONICAL_HASHED_SOURCE_REGEX.test(trimmed)) {
+    return `${USAGE_SOURCE_PREFIX_HASH}${trimmed.slice(USAGE_SOURCE_PREFIX_HASH.length).toLowerCase()}`;
+  }
   if (trimmed.startsWith(USAGE_SOURCE_PREFIX_KEY)) return trimmed;
   if (trimmed.startsWith(USAGE_SOURCE_PREFIX_MASKED)) {
     if (BACKEND_MASKED_SOURCE_REGEX.test(trimmed)) return trimmed;
@@ -741,6 +763,10 @@ export function buildCandidateUsageSourceIds(input: {
   const apiKey = input.apiKey?.trim();
   if (apiKey) {
     result.push(normalizeUsageSourceId(apiKey));
+    const hashed = sha256Hex(apiKey);
+    if (hashed) {
+      result.push(`${USAGE_SOURCE_PREFIX_HASH}${hashed.toLowerCase()}`);
+    }
     result.push(`${USAGE_SOURCE_PREFIX_MASKED}${maskUsageSecretSource(apiKey)}`);
     result.push(`${USAGE_SOURCE_PREFIX_MASKED}${maskApiKey(apiKey)}`);
     result.push(`${USAGE_SOURCE_PREFIX_TEXT}${maskApiKey(apiKey)}`);

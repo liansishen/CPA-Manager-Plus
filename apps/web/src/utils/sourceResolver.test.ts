@@ -5,6 +5,7 @@ import {
   buildSourceProviderStateMap,
   resolveSourceDisplay,
 } from './sourceResolver';
+import { sha256Hex } from './apiKeyHash';
 
 describe('source resolver', () => {
   it('resolves CPA masked Codex API key sources to readable base URL hosts', () => {
@@ -276,5 +277,48 @@ describe('source resolver', () => {
 
     expect(identityKey).toBe('shared:m:sk-s...tate');
     expect(stateMap.get(identityKey)).toBe('mixed');
+  });
+
+  it('resolves canonical h:<sha256> Codex API key sources to readable base URL hosts (#781)', () => {
+    const apiKey = 'sk-proj-strong-secret-key-1234567890abcdef';
+    const sourceInfoMap = buildSourceInfoMap({
+      codexApiKeys: [
+        {
+          apiKey,
+          baseUrl: 'https://api.first.example/v1',
+        },
+      ],
+    });
+
+    const source = `h:${sha256Hex(apiKey)}`;
+    const resolved = resolveSourceDisplay(source, '', sourceInfoMap, new Map());
+
+    expect(resolved.displayName).toBe('api.first.example');
+    expect(resolved.type).toBe('codex');
+    expect(resolved.identityKey).toBe('codex:0');
+  });
+
+  it('preserves identity continuity between legacy and new h:<sha256> source representations', () => {
+    const apiKey = 'sk-proj-identity-continuity-test-key-56789';
+    const sourceInfoMap = buildSourceInfoMap({
+      codexApiKeys: [
+        {
+          apiKey,
+          baseUrl: 'https://api.continuity.example/v1',
+        },
+      ],
+    });
+
+    const legacyMasked = 'm:sk-p...6789';
+    const newHashed = `h:${sha256Hex(apiKey)}`;
+
+    const resolvedLegacy = resolveSourceDisplay(legacyMasked, '', sourceInfoMap, new Map());
+    const resolvedHashed = resolveSourceDisplay(newHashed, '', sourceInfoMap, new Map());
+
+    expect(resolvedLegacy.identityKey).toBe('codex:0');
+    expect(resolvedHashed.identityKey).toBe('codex:0');
+    expect(resolvedHashed.identityKey).toBe(resolvedLegacy.identityKey);
+    expect(resolvedHashed.displayName).toBe(resolvedLegacy.displayName);
+    expect(resolvedHashed.type).toBe(resolvedLegacy.type);
   });
 });
