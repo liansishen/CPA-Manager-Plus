@@ -8,6 +8,7 @@ import {
   isAntigravityFile,
   isClaudeFile,
   isCodexFile,
+  isDevinFile,
   isDisabledAuthFile,
   isKimiFile,
   isXaiFile,
@@ -22,13 +23,13 @@ export type MonitoringAccountQuotaProvider =
   | 'antigravity'
   | 'claude'
   | 'codex'
+  | 'devin'
   | 'gemini'
   | 'interactions'
   | 'kimi'
   | 'openai'
   | 'vertex'
   | 'xai';
-
 
 export type MonitoringAccountQuotaTarget = {
   key: string;
@@ -64,6 +65,7 @@ export const resolveMonitoringAccountQuotaProvider = (
   if (isCodexFile(file)) return 'codex';
   if (isClaudeFile(file)) return 'claude';
   if (isAntigravityFile(file)) return 'antigravity';
+  if (isDevinFile(file)) return 'devin';
   if (isKimiFile(file)) return 'kimi';
   if (isXaiFile(file)) return 'xai';
   return null;
