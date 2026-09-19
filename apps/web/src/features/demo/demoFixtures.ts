@@ -3925,6 +3925,39 @@ const buildMonitoringAnalytics = (
       },
     },
   };
+  const gptModelMatchedEvent: DemoMonitoringEventRow = {
+    request_id: 'demo-gpt-model-matched',
+    event_hash: 'demo-event-gpt-model-matched',
+    timestamp_ms: analyticsNow - minute / 4,
+    model: 'gpt-5.6-sol',
+    analytics_model: 'gpt-5.6',
+    requested_model: 'gpt-5.6-sol',
+    resolved_model: 'gpt-5.6-terra',
+    response_model: 'gpt-5.6-terra',
+    endpoint: '/v1/chat/completions',
+    method: 'POST',
+    path: '/v1/chat/completions',
+    auth_index: 'openai-primary',
+    auth_file_snapshot: 'openai-primary.json',
+    source: 'gateway',
+    source_hash: 'src_openai_primary',
+    api_key_hash: 'hash_openai_primary',
+    account_snapshot: 'OpenAI Compatible',
+    auth_label_snapshot: 'OpenAI Primary',
+    auth_provider_snapshot: 'openai',
+    service_tier: 'standard',
+    executor_type: 'dashboard',
+    input_tokens: 1_420,
+    output_tokens: 512,
+    cached_tokens: 0,
+    cache_read_tokens: 280,
+    cache_creation_tokens: 40,
+    reasoning_tokens: 0,
+    total_tokens: 1_932,
+    latency_ms: 920,
+    ttft_ms: 180,
+    failed: false,
+  };
   const reasoningSuffixEvents: DemoMonitoringEventRow[] = [
     {
       request_id: 'demo-deepseek-reasoning-max',
@@ -3934,6 +3967,12 @@ const buildMonitoringAnalytics = (
       analytics_model: 'deepseek-chat',
       requested_model: 'deepseek-chat(max)',
       resolved_model: 'deepseek-chat-202608',
+      response_model: 'deepseek-v4-flash',
+      session_id: 'demo-session-model-mismatch',
+      parent_session_id: 'demo-parent-session',
+      access_token_sha256: 'demo-access-token-sha256',
+      generate: true,
+      stream: false,
       endpoint: '/v1/chat/completions',
       method: 'POST',
       path: '/v1/chat/completions',
@@ -4026,6 +4065,7 @@ const buildMonitoringAnalytics = (
     },
   ];
   const events: DemoMonitoringEventRow[] = [
+    gptModelMatchedEvent,
     ...reasoningSuffixEvents,
     xaiFreeUsageEvent,
     xaiSuccessfulRateLimitEvent,
@@ -6481,9 +6521,7 @@ const scopeDemoQuotaRecord = <TState extends CredentialScopedQuotaState>(
   return scoped;
 };
 
-export const getDemoQuotaStoreState = (
-  baseNow = getDemoEvidenceEpochMs()
-): DemoQuotaStoreState => {
+export const getDemoQuotaStoreState = (baseNow = getDemoEvidenceEpochMs()): DemoQuotaStoreState => {
   const raw = getDemoQuotaStoreStateByFileName(baseNow);
   const filesByName = new Map<string, AuthFileItem[]>();
   getDemoAuthFiles().files.forEach((file) => {

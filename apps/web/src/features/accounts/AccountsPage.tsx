@@ -1298,6 +1298,7 @@ export function AccountsPage() {
     batchSetStatus,
     batchPatchFields,
     batchDelete,
+    reconcileAuthFileSource,
   } = useAuthFilesData({
     connectionFingerprint,
     requestScope: authFilesRequestScope,
@@ -4468,9 +4469,7 @@ export function AccountsPage() {
     sourceMemberCount: selectedSourceMemberCount,
     connectionKey: connectionFingerprint,
     requestScope: authFilesRequestScope,
-    loadFiles: async () => {
-      await loadFiles();
-    },
+    reconcileSource: reconcileAuthFileSource,
     onSaved: handleConfigurationSaved,
   });
   const configurationDirty = configurationEditor.dirty;
@@ -7099,7 +7098,7 @@ export function AccountsPage() {
       setStatusUpdating(true);
       try {
         await batchSetStatus(patchTargets, enabled);
-        await loadFiles();
+        if (patchTargets.length > 1) await loadFiles();
         deselectAll();
       } finally {
         setStatusUpdating(false);
