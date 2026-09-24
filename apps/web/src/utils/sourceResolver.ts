@@ -12,6 +12,7 @@ export interface SourceInfoMapInput {
   claudeApiKeys?: ProviderKeyConfig[];
   codexApiKeys?: ProviderKeyConfig[];
   xaiApiKeys?: ProviderKeyConfig[];
+  metaApiKeys?: ProviderKeyConfig[];
   vertexApiKeys?: ProviderKeyConfig[];
   openaiCompatibility?: OpenAIProviderConfig[];
 }
@@ -188,6 +189,7 @@ export function buildSourceInfoMap(input: SourceInfoMapInput): SourceInfoMap {
     { items: input.claudeApiKeys || [], type: 'claude', label: 'Claude' },
     { items: input.codexApiKeys || [], type: 'codex', label: 'Codex' },
     { items: input.xaiApiKeys || [], type: 'xai', label: 'xAI' },
+    { items: input.metaApiKeys || [], type: 'meta', label: 'Muse (Meta)' },
     { items: input.vertexApiKeys || [], type: 'vertex', label: 'Vertex' },
   ];
 

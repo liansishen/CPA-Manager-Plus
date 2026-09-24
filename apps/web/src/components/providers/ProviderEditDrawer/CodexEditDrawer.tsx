@@ -13,6 +13,7 @@ import { CoolingPolicySelect } from '@/components/providers/CoolingPolicySelect'
 import { ProviderQuotaEditor } from '@/components/providers/ProviderQuotaEditor';
 import { apiCallApi, getApiCallErrorMessage, modelsApi, providersApi } from '@/services/api';
 import { usageServiceApi } from '@/services/api/usageService';
+import { hasMetaDcaAuthorizationHeader, isMetaDcaCredential } from '@/utils/metaProvider';
 import { useConfigStore, useNotificationStore } from '@/stores';
 import {
   coolingPolicyFromOverride,
@@ -51,13 +52,14 @@ import {
   isProviderQuotaInvalid,
   normalizeProviderQuotaForComparison,
   quotaBindingToForm,
+  type ProviderQuotaKind,
 } from '@/utils/quota/providerQuota';
 import {
   getCredentialWeightComparisonValue,
   getCredentialWeightError,
   normalizeCredentialWeight,
 } from '@/utils/credentialWeight';
-import type { ModelInfo } from '@/utils/models';
+import { modelDisplayLabel, type ModelInfo } from '@/utils/models';
 import styles from '@/features/aiProviders/AiProvidersPage.module.scss';
 
 interface CodexEditDrawerProps {
@@ -66,7 +68,7 @@ interface CodexEditDrawerProps {
   disabled: boolean;
   onClose: () => void;
   onSaved: () => void;
-  providerKind?: 'codex' | 'xai';
+  providerKind?: 'codex' | 'xai' | 'meta';
 }
 
 type CodexFormBaseline = ReturnType<typeof buildCodexBaseline>;
@@ -74,6 +76,7 @@ type TestStatus = 'idle' | 'loading' | 'success' | 'error';
 
 const CODEX_TEST_TIMEOUT_MS = 20_000;
 const XAI_API_BASE_URL = 'https://api.x.ai/v1';
+const META_API_BASE_URL = 'https://api.meta.ai/v1';
 
 const buildEmptyForm = (baseUrl = ''): ProviderFormState => ({
   apiKey: '',
@@ -127,6 +130,13 @@ const getErrorMessage = (err: unknown) => {
   return '';
 };
 
+const getMetaApiKeyValidationError = (value: string): 'required' | 'dca' | null => {
+  const apiKey = value.trim();
+  if (!apiKey) return 'required';
+  if (isMetaDcaCredential(apiKey)) return 'dca';
+  return null;
+};
+
 export function CodexEditDrawer({
   open,
   editIndex,
@@ -148,8 +158,10 @@ export function CodexEditDrawer({
     setManagerConfig,
   } = useProviderQuotaManagerConfig(open);
   const isXAI = providerKind === 'xai';
-  const providerSection = isXAI ? 'xai-api-key' : 'codex-api-key';
-  const defaultBaseUrl = isXAI ? XAI_API_BASE_URL : '';
+  const isMeta = providerKind === 'meta';
+  const customQuotaProviderKind: ProviderQuotaKind | null = isMeta ? null : providerKind;
+  const providerSection = isMeta ? 'meta-api-key' : isXAI ? 'xai-api-key' : 'codex-api-key';
+  const defaultBaseUrl = isMeta ? META_API_BASE_URL : isXAI ? XAI_API_BASE_URL : '';
 
   const [configs, setConfigs] = useState<ProviderKeyConfig[]>([]);
   const [loading, setLoading] = useState(false);
@@ -180,8 +192,20 @@ export function CodexEditDrawer({
 
   const title =
     editIndex !== null
-      ? t(isXAI ? 'ai_providers.xai_edit_modal_title' : 'ai_providers.codex_edit_modal_title')
-      : t(isXAI ? 'ai_providers.xai_add_modal_title' : 'ai_providers.codex_add_modal_title');
+      ? t(
+          isMeta
+            ? 'ai_providers.meta_edit_modal_title'
+            : isXAI
+              ? 'ai_providers.xai_edit_modal_title'
+              : 'ai_providers.codex_edit_modal_title'
+        )
+      : t(
+          isMeta
+            ? 'ai_providers.meta_add_modal_title'
+            : isXAI
+              ? 'ai_providers.xai_add_modal_title'
+              : 'ai_providers.codex_add_modal_title'
+        );
 
   useEffect(() => {
     if (!open) return;
@@ -227,7 +251,14 @@ export function CodexEditDrawer({
         modelEntries: modelsToEntries(initialData.models),
         excludedText: excludedModelsToText(initialData.excludedModels),
         quota: quotaBindingToForm(
-          findProviderQuotaBinding(managerConfig, providerKind, `${providerKind}:${editIndex}`, initialData.apiKey)
+          customQuotaProviderKind
+            ? findProviderQuotaBinding(
+                managerConfig,
+                customQuotaProviderKind,
+                `${providerKind}:${editIndex}`,
+                initialData.apiKey
+              )
+            : undefined
         ),
       };
       setForm(nextForm);
@@ -242,7 +273,17 @@ export function CodexEditDrawer({
     }
     setTestStatus('idle');
     setTestMessage('');
-  }, [defaultBaseUrl, open, loaded, managerConfig, managerConfigLoaded, initialData, providerKind, editIndex]);
+  }, [
+    defaultBaseUrl,
+    open,
+    loaded,
+    managerConfig,
+    managerConfigLoaded,
+    initialData,
+    providerKind,
+    customQuotaProviderKind,
+    editIndex,
+  ]);
 
   const canSave =
     loaded &&
@@ -282,9 +323,9 @@ export function CodexEditDrawer({
     if (!filter) return discoveredModels;
     return discoveredModels.filter((model) => {
       const name = (model.name || '').toLowerCase();
-      const alias = (model.alias || '').toLowerCase();
+      const label = modelDisplayLabel(model).toLowerCase();
       const description = (model.description || '').toLowerCase();
-      return name.includes(filter) || alias.includes(filter) || description.includes(filter);
+      return name.includes(filter) || label.includes(filter) || description.includes(filter);
     });
   }, [discoveredModels, modelDiscoverySearch]);
 
@@ -392,8 +433,29 @@ export function CodexEditDrawer({
   );
 
   const fetchModelDiscovery = useCallback(async () => {
-    setModelDiscoveryFetching(true);
     setModelDiscoveryError('');
+
+    if (isMeta) {
+      const keyError = getMetaApiKeyValidationError(form.apiKey);
+      if (keyError === 'required') {
+        setDiscoveredModels([]);
+        setModelDiscoveryError(t('ai_providers.meta_key_required'));
+        return;
+      }
+      if (keyError === 'dca') {
+        setDiscoveredModels([]);
+        setModelDiscoveryError(t('ai_providers.meta_dca_not_accepted'));
+        return;
+      }
+      const headerObject = buildHeaderObject(form.headers);
+      if (hasMetaDcaAuthorizationHeader(headerObject)) {
+        setDiscoveredModels([]);
+        setModelDiscoveryError(t('ai_providers.meta_dca_not_accepted'));
+        return;
+      }
+    }
+
+    setModelDiscoveryFetching(true);
     try {
       const headerObject = buildHeaderObject(form.headers);
       const hasCustomAuthorization = Object.keys(headerObject).some(
@@ -416,7 +478,7 @@ export function CodexEditDrawer({
     } finally {
       setModelDiscoveryFetching(false);
     }
-  }, [form.apiKey, form.authIndex, form.baseUrl, form.headers, form.proxyUrl, t]);
+  }, [form.apiKey, form.authIndex, form.baseUrl, form.headers, form.proxyUrl, isMeta, t]);
 
   const runCodexConnectivityTest = useCallback(async () => {
     if (isTesting) return;
@@ -516,20 +578,114 @@ export function CodexEditDrawer({
     testModel,
   ]);
 
-  const handleSave = useCallback(async () => {
-    if (!canSave) return;
-    const apiKey = form.apiKey.trim();
-    if (!apiKey && !normalizeAuthIndex(form.authIndex)) {
-      showNotification(
-        t(isXAI ? 'ai_providers.xai_key_required' : 'ai_providers.codex_key_required'),
-        'error'
-      );
+  const runMetaConnectivityTest = useCallback(async () => {
+    if (isTesting) return;
+
+    const keyError = getMetaApiKeyValidationError(form.apiKey);
+    if (keyError === 'required') {
+      const message = t('ai_providers.meta_key_required');
+      setTestStatus('error');
+      setTestMessage(message);
+      showNotification(message, 'error');
       return;
     }
-    const trimmedBaseUrl = (form.baseUrl ?? '').trim();
+    if (keyError === 'dca') {
+      const message = t('ai_providers.meta_dca_not_accepted');
+      setTestStatus('error');
+      setTestMessage(message);
+      showNotification(message, 'error');
+      return;
+    }
+
+    const customHeaders = buildHeaderObject(form.headers);
+    if (hasMetaDcaAuthorizationHeader(customHeaders)) {
+      const message = t('ai_providers.meta_dca_not_accepted');
+      setTestStatus('error');
+      setTestMessage(message);
+      showNotification(message, 'error');
+      return;
+    }
+    const hasAuthorization = hasHeader(customHeaders, 'authorization');
+    const keyAuthIndex = normalizeAuthIndex(form.authIndex) ?? undefined;
+    const baseUrl = (form.baseUrl ?? '').trim() || META_API_BASE_URL;
+    const apiKey = form.apiKey.trim();
+
+    setIsTesting(true);
+    setTestStatus('loading');
+    setTestMessage(t('ai_providers.meta_test_running'));
+
+    try {
+      const models = await modelsApi.fetchV1ModelsViaApiCall(
+        baseUrl,
+        hasAuthorization ? undefined : apiKey,
+        customHeaders,
+        keyAuthIndex,
+        form.proxyUrl
+      );
+      if (!models || models.length === 0) {
+        throw new Error(t('ai_providers.meta_test_no_models'));
+      }
+      const message = t('ai_providers.meta_test_success');
+      setTestStatus('success');
+      setTestMessage(message);
+      showNotification(message, 'success');
+    } catch (err: unknown) {
+      const failureText = t('ai_providers.meta_test_failed');
+      const message = getErrorMessage(err) || failureText;
+      setTestStatus('error');
+      setTestMessage(message);
+      showNotification(`${failureText}: ${message}`, 'error');
+    } finally {
+      setIsTesting(false);
+    }
+  }, [
+    form.apiKey,
+    form.authIndex,
+    form.baseUrl,
+    form.headers,
+    form.proxyUrl,
+    isTesting,
+    showNotification,
+    t,
+  ]);
+
+  const handleSave = useCallback(async () => {
+    if (!canSave) return;
+    if (isMeta) {
+      const keyError = getMetaApiKeyValidationError(form.apiKey);
+      if (keyError === 'required') {
+        showNotification(t('ai_providers.meta_key_required'), 'error');
+        return;
+      }
+      if (keyError === 'dca') {
+        showNotification(t('ai_providers.meta_dca_not_accepted'), 'error');
+        return;
+      }
+      const customHeaders = buildHeaderObject(form.headers);
+      if (hasMetaDcaAuthorizationHeader(customHeaders)) {
+        showNotification(t('ai_providers.meta_dca_not_accepted'), 'error');
+        return;
+      }
+    } else {
+      const apiKey = form.apiKey.trim();
+      if (!apiKey && !normalizeAuthIndex(form.authIndex)) {
+        showNotification(
+          t(isXAI ? 'ai_providers.xai_key_required' : 'ai_providers.codex_key_required'),
+          'error'
+        );
+        return;
+      }
+    }
+    const trimmedBaseUrl = (form.baseUrl ?? '').trim() || (isMeta ? META_API_BASE_URL : '');
     if (!trimmedBaseUrl) {
       showNotification(
-        t(isXAI ? 'notification.xai_base_url_required' : 'notification.codex_base_url_required'),
+        t(
+          isMeta
+            ? 'notification.meta_base_url_required'
+            : isXAI
+              ? 'notification.xai_base_url_required'
+              : 'notification.codex_base_url_required'
+        ),
         'error'
       );
       return;
@@ -545,7 +701,8 @@ export function CodexEditDrawer({
     }
     const providerName = `${providerKind}:${editIndex ?? configs.length}`;
     const shouldSaveCustomQuota =
-      hasProviderQuotaState(form.quota) || hasProviderQuotaBinding(managerConfig, providerName);
+      Boolean(customQuotaProviderKind) &&
+      (hasProviderQuotaState(form.quota) || hasProviderQuotaBinding(managerConfig, providerName));
     if (shouldSaveCustomQuota && (!managerConfig || !quotaServiceBase || !managementKey)) {
       showNotification(
         t('ai_providers.openai_quota_service_unavailable', {
@@ -564,7 +721,6 @@ export function CodexEditDrawer({
         weight: normalizeCredentialWeight(form.weight),
         prefix: form.prefix?.trim() || undefined,
         baseUrl: trimmedBaseUrl,
-        websockets: Boolean(form.websockets),
         proxyUrl: form.proxyUrl?.trim() || undefined,
         headers: buildHeaderObject(form.headers),
         models: entriesToModels(form.modelEntries),
@@ -572,29 +728,52 @@ export function CodexEditDrawer({
         authIndex: normalizeAuthIndex(form.authIndex) ?? undefined,
         disableCooling: coolingPolicyToOverride(form.disableCooling),
       };
+      if (!isMeta) {
+        payload.websockets = Boolean(form.websockets);
+      }
       if (editIndex !== null) {
-        if (isXAI) {
+        if (isMeta) {
+          await providersApi.updateMetaConfig(configs[editIndex], payload);
+        } else if (isXAI) {
           await providersApi.updateXAIConfig(configs[editIndex], payload);
         } else {
           await providersApi.updateCodexConfig(configs[editIndex], payload);
         }
       } else {
-        if (isXAI) {
+        if (isMeta) {
+          await providersApi.createMetaConfig(payload);
+        } else if (isXAI) {
           await providersApi.createXAIConfig(payload);
         } else {
           await providersApi.createCodexConfig(payload);
         }
       }
-      if (shouldSaveCustomQuota && managerConfig && quotaServiceBase && managementKey) {
+      if (
+        shouldSaveCustomQuota &&
+        customQuotaProviderKind &&
+        managerConfig &&
+        quotaServiceBase &&
+        managementKey
+      ) {
         const managerResponse = await usageServiceApi.saveManagerConfig(
           quotaServiceBase,
-          buildProviderQuotaManagerConfig(managerConfig, providerKind, providerName, apiKey, form.quota),
+          buildProviderQuotaManagerConfig(
+            managerConfig,
+            customQuotaProviderKind,
+            providerName,
+            form.apiKey.trim(),
+            form.quota
+          ),
           managementKey
         );
         setManagerConfig(managerResponse.config);
       }
       const syncedList = await (
-        isXAI ? providersApi.getXAIConfigs() : providersApi.getCodexConfigs()
+        isMeta
+          ? providersApi.getMetaConfigs()
+          : isXAI
+            ? providersApi.getXAIConfigs()
+            : providersApi.getCodexConfigs()
       ).catch(() =>
         editIndex !== null
           ? configs.map((item, index) => (index === editIndex ? payload : item))
@@ -604,8 +783,20 @@ export function CodexEditDrawer({
       clearCache(providerSection);
       showNotification(
         editIndex !== null
-          ? t(isXAI ? 'notification.xai_config_updated' : 'notification.codex_config_updated')
-          : t(isXAI ? 'notification.xai_config_added' : 'notification.codex_config_added'),
+          ? t(
+              isMeta
+                ? 'notification.meta_config_updated'
+                : isXAI
+                  ? 'notification.xai_config_updated'
+                  : 'notification.codex_config_updated'
+            )
+          : t(
+              isMeta
+                ? 'notification.meta_config_added'
+                : isXAI
+                  ? 'notification.xai_config_added'
+                  : 'notification.codex_config_added'
+            ),
         'success'
       );
       onSaved();
@@ -621,7 +812,19 @@ export function CodexEditDrawer({
     clearCache,
     configs,
     editIndex,
-    form,
+    form.apiKey,
+    form.authIndex,
+    form.baseUrl,
+    form.disableCooling,
+    form.excludedText,
+    form.headers,
+    form.modelEntries,
+    form.prefix,
+    form.priority,
+    form.proxyUrl,
+    form.websockets,
+    form.weight,
+    isMeta,
     isXAI,
     onClose,
     onSaved,
@@ -636,6 +839,7 @@ export function CodexEditDrawer({
     managerConfig,
     managementKey,
     providerKind,
+    customQuotaProviderKind,
     quotaServiceBase,
     setManagerConfig,
   ]);
@@ -699,8 +903,17 @@ export function CodexEditDrawer({
     setModelDiscoverySelected(new Set());
   }, []);
 
+  const isMetaKeyValid = !isMeta || getMetaApiKeyValidationError(form.apiKey) === null;
+  const isMetaAuthorizationValid =
+    !isMeta || !hasMetaDcaAuthorizationHeader(buildHeaderObject(form.headers));
   const canOpenModelDiscovery =
-    !disabled && !saving && !loading && !invalidIndex && Boolean((form.baseUrl ?? '').trim());
+    !disabled &&
+    !saving &&
+    !loading &&
+    !invalidIndex &&
+    Boolean((form.baseUrl ?? '').trim()) &&
+    isMetaKeyValid &&
+    isMetaAuthorizationValid;
   const canApplyModelDiscovery =
     !disabled && !saving && !modelDiscoveryFetching && modelDiscoverySelected.size > 0;
 
@@ -836,44 +1049,54 @@ export function CodexEditDrawer({
                     {t('ai_providers.codex_test_title')}
                   </label>
                   <span className={styles.modelTestHint}>
-                    {t(isXAI ? 'ai_providers.xai_test_hint' : 'ai_providers.codex_test_hint')}
+                    {t(
+                      isMeta
+                        ? 'ai_providers.meta_test_hint'
+                        : isXAI
+                          ? 'ai_providers.xai_test_hint'
+                          : 'ai_providers.codex_test_hint'
+                    )}
                   </span>
                 </div>
                 <div className={styles.modelTestControls}>
-                  <Select
-                    value={testModel}
-                    options={modelSelectOptions}
-                    onChange={(value) => {
-                      setTestModel(value);
-                      setTestStatus('idle');
-                      setTestMessage('');
-                    }}
-                    placeholder={
-                      availableModels.length
-                        ? t('ai_providers.codex_test_select_placeholder')
-                        : t('ai_providers.codex_test_select_empty')
-                    }
-                    className={styles.openaiTestSelect}
-                    ariaLabel={t('ai_providers.codex_test_title')}
-                    disabled={
-                      disabled ||
-                      saving ||
-                      isTesting ||
-                      testStatus === 'loading' ||
-                      availableModels.length === 0
-                    }
-                  />
+                  {!isMeta && (
+                    <Select
+                      value={testModel}
+                      options={modelSelectOptions}
+                      onChange={(value) => {
+                        setTestModel(value);
+                        setTestStatus('idle');
+                        setTestMessage('');
+                      }}
+                      placeholder={
+                        availableModels.length
+                          ? t('ai_providers.codex_test_select_placeholder')
+                          : t('ai_providers.codex_test_select_empty')
+                      }
+                      className={styles.openaiTestSelect}
+                      ariaLabel={t('ai_providers.codex_test_title')}
+                      disabled={
+                        disabled ||
+                        saving ||
+                        isTesting ||
+                        testStatus === 'loading' ||
+                        availableModels.length === 0
+                      }
+                    />
+                  )}
                   <Button
                     variant={testStatus === 'error' ? 'danger' : 'secondary'}
                     size="sm"
-                    onClick={() => void runCodexConnectivityTest()}
+                    onClick={() =>
+                      void (isMeta ? runMetaConnectivityTest() : runCodexConnectivityTest())
+                    }
                     disabled={
                       disabled ||
                       saving ||
                       loading ||
                       isTesting ||
                       testStatus === 'loading' ||
-                      availableModels.length === 0
+                      (!isMeta && availableModels.length === 0)
                     }
                     loading={isTesting}
                     className={styles.modelTestAllButton}
@@ -897,16 +1120,18 @@ export function CodexEditDrawer({
               )}
             </div>
 
-            <div className="form-group">
-              <label>{t('ai_providers.codex_websockets_label')}</label>
-              <ToggleSwitch
-                checked={Boolean(form.websockets)}
-                onChange={(value) => setForm((prev) => ({ ...prev, websockets: value }))}
-                disabled={disabled || saving}
-                ariaLabel={t('ai_providers.codex_websockets_label')}
-              />
-              <div className="hint">{t('ai_providers.codex_websockets_hint')}</div>
-            </div>
+            {!isMeta && (
+              <div className="form-group">
+                <label>{t('ai_providers.codex_websockets_label')}</label>
+                <ToggleSwitch
+                  checked={Boolean(form.websockets)}
+                  onChange={(value) => setForm((prev) => ({ ...prev, websockets: value }))}
+                  disabled={disabled || saving}
+                  ariaLabel={t('ai_providers.codex_websockets_label')}
+                />
+                <div className="hint">{t('ai_providers.codex_websockets_hint')}</div>
+              </div>
+            )}
 
             <CoolingPolicySelect
               value={form.disableCooling}
@@ -914,16 +1139,18 @@ export function CodexEditDrawer({
               disabled={disabled || saving}
               id={`${providerSection}-cooling-policy`}
             />
-            <ProviderQuotaEditor
-              quota={form.quota ?? buildEmptyProviderQuota()}
-              onChange={(patch) =>
-                setForm((prev) => ({
-                  ...prev,
-                  quota: { ...buildEmptyProviderQuota(), ...prev.quota, ...patch },
-                }))
-              }
-              disabled={disabled || saving}
-            />
+            {!isMeta && (
+              <ProviderQuotaEditor
+                quota={form.quota ?? buildEmptyProviderQuota()}
+                onChange={(patch) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    quota: { ...buildEmptyProviderQuota(), ...prev.quota, ...patch },
+                  }))
+                }
+                disabled={disabled || saving}
+              />
+            )}
 
             <div className="form-group">
               <label>{t('ai_providers.excluded_models_label')}</label>
@@ -1031,6 +1258,7 @@ export function CodexEditDrawer({
                   <div className={styles.modelDiscoveryList}>
                     {discoveredModelsFiltered.map((model) => {
                       const checked = modelDiscoverySelected.has(model.name);
+                      const discoveryLabel = modelDisplayLabel(model);
                       const alreadyConfigured = configuredModelNames.has(
                         model.name.trim().toLowerCase()
                       );
@@ -1050,9 +1278,9 @@ export function CodexEditDrawer({
                               <div className={styles.modelDiscoveryName}>
                                 <div className={styles.modelDiscoveryNameText}>
                                   {model.name}
-                                  {model.alias && (
+                                  {discoveryLabel && (
                                     <span className={styles.modelDiscoveryAlias}>
-                                      {model.alias}
+                                      {discoveryLabel}
                                     </span>
                                   )}
                                 </div>

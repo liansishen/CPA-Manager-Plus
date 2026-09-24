@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -68,16 +69,20 @@ type Event struct {
 	CacheCreationTokens int64  `json:"cache_creation_tokens"`
 	// Normalized token buckets are persisted for aggregation and billing but are
 	// not exposed in compatible usage payloads.
-	NormalizedUncachedInputTokens int64  `json:"-"`
-	NormalizedTotalInputTokens    int64  `json:"-"`
-	NormalizedCacheReadTokens     int64  `json:"-"`
-	NormalizedCacheCreationTokens int64  `json:"-"`
-	TotalTokens                   int64  `json:"total_tokens"`
-	LatencyMS                     *int64 `json:"latency_ms,omitempty"`
-	TTFTMS                        *int64 `json:"ttft_ms,omitempty"`
-	Failed                        bool   `json:"failed"`
-	FailStatusCode                int    `json:"fail_status_code,omitempty"`
-	FailSummary                   string `json:"fail_summary,omitempty"`
+	NormalizedUncachedInputTokens int64 `json:"-"`
+	NormalizedTotalInputTokens    int64 `json:"-"`
+	NormalizedCacheReadTokens     int64 `json:"-"`
+	NormalizedCacheCreationTokens int64 `json:"-"`
+	TotalTokens                   int64 `json:"total_tokens"`
+	// PreserveArchiveDerivedFields is set only after an internal archive record
+	// passes schema validation. It keeps persisted accounting and service-tier
+	// semantics stable when an archive is restored by a newer CPAMP version.
+	PreserveArchiveDerivedFields bool   `json:"-"`
+	LatencyMS                    *int64 `json:"latency_ms,omitempty"`
+	TTFTMS                       *int64 `json:"ttft_ms,omitempty"`
+	Failed                       bool   `json:"failed"`
+	FailStatusCode               int    `json:"fail_status_code,omitempty"`
+	FailSummary                  string `json:"fail_summary,omitempty"`
 	// FailBody is retained only in the local DB as a sensitive internal field.
 	// Public APIs, compatible payloads, and exports must use FailSummary instead.
 	FailBody               string                  `json:"-"`
@@ -191,8 +196,9 @@ const (
 	maxXForwardedForBytes          = 2048
 	maxUserAgentBytes              = 1024
 	LongContextInputTokenThreshold = int64(272_000)
-	CacheInputModeIncluded         = "included_in_input"
-	CacheInputModeSeparate         = "separate_from_input"
+	CacheInputModeIncluded                     = "included_in_input"
+	CacheInputModeSeparate                     = "separate_from_input"
+	CacheInputModeReadIncludedCreationSeparate = "read_included_creation_separate"
 )
 
 type CacheAccounting struct {
@@ -259,19 +265,48 @@ func NormalizeCacheAccounting(context CacheInputContext, inputTokens, cachedToke
 		CacheReadTokens:     cacheRead,
 		CacheCreationTokens: cacheCreation,
 	}
-	if mode == CacheInputModeSeparate {
+	switch mode {
+	case CacheInputModeSeparate:
 		accounting.UncachedInputTokens = input
 		accounting.TotalInputTokens = input + cacheRead + cacheCreation
-		return accounting
+	case CacheInputModeReadIncludedCreationSeparate:
+		accounting.UncachedInputTokens = maxInt64(input-cacheRead, 0)
+		accounting.TotalInputTokens = input + cacheCreation
+	default:
+		accounting.UncachedInputTokens = maxInt64(input-cacheRead-cacheCreation, 0)
+		accounting.TotalInputTokens = input
 	}
-	accounting.UncachedInputTokens = maxInt64(input-cacheRead-cacheCreation, 0)
-	accounting.TotalInputTokens = input
 	return accounting
+}
+
+func ValidateArchiveDerivedFields(event Event) error {
+	if !event.PreserveArchiveDerivedFields {
+		return nil
+	}
+	mode := normalizeCacheInputMode(event.CacheInputMode)
+	if mode != CacheInputModeIncluded && mode != CacheInputModeSeparate {
+		return fmt.Errorf("archive cache input mode %q is invalid", event.CacheInputMode)
+	}
+	for _, field := range []struct {
+		name  string
+		value int64
+	}{
+		{name: "normalized_uncached_input_tokens", value: event.NormalizedUncachedInputTokens},
+		{name: "normalized_total_input_tokens", value: event.NormalizedTotalInputTokens},
+		{name: "normalized_cache_read_tokens", value: event.NormalizedCacheReadTokens},
+		{name: "normalized_cache_creation_tokens", value: event.NormalizedCacheCreationTokens},
+		{name: "total_tokens", value: event.TotalTokens},
+	} {
+		if field.value < 0 {
+			return fmt.Errorf("archive %s must not be negative", field.name)
+		}
+	}
+	return nil
 }
 
 func InferCacheInputMode(context CacheInputContext, cacheReadTokens, cacheCreationTokens int64) string {
 	mode := normalizeCacheInputMode(context.ExplicitMode)
-	if mode == CacheInputModeIncluded || mode == CacheInputModeSeparate {
+	if mode == CacheInputModeIncluded || mode == CacheInputModeSeparate || mode == CacheInputModeReadIncludedCreationSeparate {
 		return mode
 	}
 	if classified, ok := classifyExecutorCacheInputMode(context.ExecutorType); ok {
@@ -302,6 +337,9 @@ func classifyExecutorCacheInputMode(executorType string) (string, bool) {
 	if executor == "" {
 		return "", false
 	}
+	if executor == "devinexecutor" {
+		return CacheInputModeReadIncludedCreationSeparate, true
+	}
 	if strings.Contains(executor, "claude") {
 		return CacheInputModeSeparate, true
 	}
@@ -322,6 +360,9 @@ func classifyProviderCacheInputMode(provider string) (string, bool) {
 	if provider == "" {
 		return "", false
 	}
+	if provider == "devin" || strings.HasPrefix(provider, "devin/") {
+		return CacheInputModeReadIncludedCreationSeparate, true
+	}
 	if strings.Contains(provider, "anthropic") || strings.Contains(provider, "claude") {
 		return CacheInputModeSeparate, true
 	}
@@ -340,6 +381,9 @@ func classifyModelCacheInputMode(model string) (string, bool) {
 	model = strings.ToLower(strings.TrimSpace(model))
 	if model == "" {
 		return "", false
+	}
+	if model == "devin" || strings.HasPrefix(model, "devin/") {
+		return CacheInputModeReadIncludedCreationSeparate, true
 	}
 	if strings.Contains(model, "anthropic") || strings.Contains(model, "claude") {
 		return CacheInputModeSeparate, true
@@ -395,12 +439,12 @@ func rawCacheAccountingHintsFromJSON(raw string, depth int) RawCacheAccountingHi
 func cacheInputModeFromRecord(record map[string]any) string {
 	for _, parent := range []string{"tokens", "usage"} {
 		mode := normalizeCacheInputMode(readStringFromNested(record, parent, "cache_input_mode", "cacheInputMode"))
-		if mode == CacheInputModeIncluded || mode == CacheInputModeSeparate {
+		if mode == CacheInputModeIncluded || mode == CacheInputModeSeparate || mode == CacheInputModeReadIncludedCreationSeparate {
 			return mode
 		}
 	}
 	mode := normalizeCacheInputMode(readString(record, "cache_input_mode", "cacheInputMode"))
-	if mode == CacheInputModeIncluded || mode == CacheInputModeSeparate {
+	if mode == CacheInputModeIncluded || mode == CacheInputModeSeparate || mode == CacheInputModeReadIncludedCreationSeparate {
 		return mode
 	}
 	return ""
@@ -904,6 +948,29 @@ func readOptionalBool(record map[string]any, keys ...string) *bool {
 func readOptionalInt(record map[string]any, keys ...string) *int64 {
 	value := readInt(record, keys...)
 	if value == 0 && first(record, keys...) == nil {
+		return nil
+	}
+	return &value
+}
+
+func readOptionalFloat(record map[string]any, keys ...string) *float64 {
+	raw := first(record, keys...)
+	if raw == nil {
+		return nil
+	}
+	var value float64
+	var err error
+	switch number := raw.(type) {
+	case json.Number:
+		value, err = strconv.ParseFloat(number.String(), 64)
+	case float64:
+		value = number
+	case string:
+		value, err = strconv.ParseFloat(strings.TrimSpace(number), 64)
+	default:
+		return nil
+	}
+	if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
 		return nil
 	}
 	return &value

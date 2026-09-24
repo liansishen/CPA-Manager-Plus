@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyModels } from './models';
+import { classifyModels, modelDisplayLabel, normalizeModelList } from './models';
 
 describe('classifyModels', () => {
   it('classifies devin/* models into Devin group without altering model names', () => {
@@ -61,5 +61,108 @@ describe('classifyModels', () => {
     const groups = classifyModels(input);
     const devinGroup = groups.find((g) => g.id === 'devin');
     expect(devinGroup).toBeUndefined();
+  });
+
+  it('classifies muse models into Muse group without altering model names', () => {
+    const input = [
+      { name: 'muse-spark-1.3' },
+      { name: 'muse-spark-1.2' },
+      { name: 'meta/muse-spark-1.3' },
+      { name: 'meta/random-model' },
+      { name: 'devin/muse-spark-1.3' },
+    ];
+
+    const groups = classifyModels(input);
+
+    const museGroup = groups.find((g) => g.id === 'muse');
+    expect(museGroup).toBeDefined();
+    expect(museGroup?.label).toBe('Muse');
+    expect(museGroup?.items.map((m) => m.name)).toEqual([
+      'muse-spark-1.3',
+      'muse-spark-1.2',
+      'meta/muse-spark-1.3',
+    ]);
+
+    const otherGroup = groups.find((g) => g.id === 'other');
+    expect(otherGroup).toBeDefined();
+    expect(otherGroup?.items.map((m) => m.name)).toContain('meta/random-model');
+
+    const devinGroup = groups.find((g) => g.id === 'devin');
+    expect(devinGroup).toBeDefined();
+    expect(devinGroup?.items.map((m) => m.name)).toContain('devin/muse-spark-1.3');
+
+    // Verify original model names are not stripped or altered
+    expect(museGroup?.items.find((m) => m.name === 'meta/muse-spark-1.3')?.name).toBe('meta/muse-spark-1.3');
+  });
+});
+
+describe('normalizeModelList', () => {
+  it('keeps an upstream display name out of the routing alias', () => {
+    const [model] = normalizeModelList({
+      object: 'list',
+      data: [{ id: 'gpt-5.6-luna', object: 'model', display_name: 'GPT 5.6 Luna' }],
+    });
+
+    expect(model.name).toBe('gpt-5.6-luna');
+    expect(model.alias).toBeUndefined();
+    expect(model.displayName).toBe('GPT 5.6 Luna');
+  });
+
+  it('accepts the camelCase display name spelling as display metadata', () => {
+    const [model] = normalizeModelList([{ id: 'gpt-5.6-luna', displayName: 'GPT-5.6 Luna' }]);
+
+    expect(model.alias).toBeUndefined();
+    expect(model.displayName).toBe('GPT-5.6 Luna');
+  });
+
+  it('preserves an explicitly supplied alias alongside the display name', () => {
+    const [model] = normalizeModelList([
+      { id: 'gpt-5.6-luna', alias: 'my-luna', display_name: 'GPT 5.6 Luna' },
+    ]);
+
+    expect(model.alias).toBe('my-luna');
+    expect(model.displayName).toBe('GPT 5.6 Luna');
+  });
+
+  it('leaves both fields unset when the entry carries an id only', () => {
+    const [model] = normalizeModelList([{ id: 'gpt-5.6-luna' }]);
+
+    expect(model.alias).toBeUndefined();
+    expect(model.displayName).toBeUndefined();
+  });
+
+  it('drops a display name that merely repeats the model id', () => {
+    const [model] = normalizeModelList([
+      { id: 'gpt-5.6-luna', display_name: 'gpt-5.6-luna' },
+    ]);
+
+    expect(model.alias).toBeUndefined();
+    expect(model.displayName).toBeUndefined();
+  });
+
+  it('still groups a model by its display name', () => {
+    const groups = classifyModels(
+      normalizeModelList([{ id: 'meta-muse-internal-7', display_name: 'Claude Sonnet 4.6' }])
+    );
+
+    expect(groups.find((group) => group.id === 'claude')?.items.map((m) => m.name)).toEqual([
+      'meta-muse-internal-7',
+    ]);
+  });
+});
+
+describe('modelDisplayLabel', () => {
+  it('prefers an explicit alias over the upstream display name', () => {
+    expect(modelDisplayLabel({ name: 'gpt-5.6-luna', alias: 'my-luna', displayName: 'GPT 5.6 Luna' }))
+      .toBe('my-luna');
+  });
+
+  it('falls back to the display name so discovery rows stay readable', () => {
+    expect(modelDisplayLabel({ name: 'gpt-5.6-luna', displayName: 'GPT 5.6 Luna' }))
+      .toBe('GPT 5.6 Luna');
+  });
+
+  it('returns an empty string when the model carries neither', () => {
+    expect(modelDisplayLabel({ name: 'gpt-5.6-luna' })).toBe('');
   });
 });

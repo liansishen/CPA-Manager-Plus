@@ -45,6 +45,7 @@ const emptyStores = (): AccountQuotaStores => ({
   codexQuota: {},
   kimiQuota: {},
   devinQuota: {},
+  metaQuota: {},
   xaiQuota: {},
 });
 
@@ -3538,4 +3539,19 @@ describe('accountRows', () => {
       expect(options[0]).toEqual({ value: 'unknown', label: '未知套餐' });
     }
   });
+
+  it('normalizes meta and muse credentials to meta provider in account rows', () => {
+    const rows = buildAccountRows(
+      [
+        { name: 'meta-oauth.json', type: 'meta', provider: 'meta' },
+        { name: 'muse-legacy.json', type: 'muse', provider: 'muse' },
+      ],
+      emptyStores()
+    );
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.provider).toBe('meta');
+    expect(rows[1]?.provider).toBe('meta');
+  });
 });
+
