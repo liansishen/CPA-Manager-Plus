@@ -159,7 +159,7 @@ type AccountHistoryResponseForTest = {
     success_calls: number;
     failure_calls: number;
     total_tokens: number;
-    total_cost: number;
+    total_cost: number | null;
     success_rate: number | null;
     first_seen_ms: number | null;
     last_seen_ms: number | null;
@@ -9861,6 +9861,43 @@ describe('AccountsPage replacement flows', () => {
         expect.objectContaining({ search: expect.stringContaining('tab=quota') }),
         { replace: true }
       );
+    });
+
+    it.each([
+      { cost: null, label: '-' },
+      { cost: 0, label: '$0.00' },
+    ])('keeps historical metrics consistent when cost is $cost', async ({ cost, label }) => {
+      mocks.getAccountHistory.mockResolvedValue(
+        makeAccountHistoryResponse([{ ...item, total_cost: cost }])
+      );
+      const renderer = await renderAccountsPage();
+      await flushPromises();
+
+      const region = findAccountDetailRegion(renderer, selectionKey, 'history');
+      expect(region.findAllByType('strong').map(readText)).toEqual([
+        '1.2M', '1.0B', label, '98.3%',
+      ]);
+      expect(region.props['aria-label']).toContain(label);
+      await act(async () => region.props.onClick({ stopPropagation: vi.fn() }));
+      await flushPromises();
+
+      const detail = renderer.root.findByType(AccountQuotaTab);
+      expect(detail.props.detailView.history.totalCost).toBe(cost);
+      const metrics = () => renderer.root.findByProps({ 'data-account-quota-metrics': 'true' });
+      expect(metrics().findAllByType('strong').map(readText)).toEqual([
+        '1.2M', '1.0B', label, '98.32%',
+      ]);
+
+      mocks.getAccountHistory.mockResolvedValue(makeAccountHistoryResponse([item]));
+      await act(async () => findHostButtonByText(renderer, 'accounts.refresh_history').props.onClick());
+      await flushPromises();
+      expect(metrics().findAllByType('strong').map(readText)).toEqual([
+        '1.2M', '1.0B', '$12,345.67', '98.32%',
+      ]);
+      expect(findAccountDetailRegion(renderer, selectionKey, 'history')
+        .findAllByType('strong').map(readText)).toEqual([
+        '1.2M', '1.0B', '$12.35K', '98.3%',
+      ]);
     });
 
     it.each(['unmatched', 'error'] as const)('uses only recent requests and success for %s history', async (state) => {

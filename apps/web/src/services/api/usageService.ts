@@ -1140,7 +1140,7 @@ export interface MonitoringAccountHistoryItem {
   success_calls: number;
   failure_calls: number;
   total_tokens: number;
-  total_cost: number;
+  total_cost: number | null;
   success_rate: number | null;
   first_seen_ms: number | null;
   last_seen_ms: number | null;
@@ -4022,7 +4022,7 @@ export const usageServiceApi = {
         headers: authHeaders(managementKey),
         signal,
       });
-      if (response.status !== 204) {
+      if (response.status !== 200 && response.status !== 204) {
         const error = new Error(
           'This Manager Server does not support usage maintenance.'
         ) as UsageServiceApiError;
