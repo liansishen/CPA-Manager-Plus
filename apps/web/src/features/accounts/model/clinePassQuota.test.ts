@@ -109,7 +109,20 @@ describe('cline pass account quota', () => {
       ]
     );
     expect(windows.every((w) => w.source === 'cline-pass')).toBe(true);
-    expect(windows.map((w) => w.windowMode)).toEqual(['rolling', 'fixed', 'calendar']);
+    expect(windows.map((w) => w.windowMode)).toEqual(['fixed', 'fixed', 'fixed']);
+    expect(windows[0]).toMatchObject({
+      limitWindowSeconds: 5 * 3600,
+      cycleStartMs: (FIVE_HOUR_RESET_S - 5 * 3600) * 1000,
+      cycleEndMs: FIVE_HOUR_RESET_S * 1000,
+    });
+    expect(windows[1]).toMatchObject({
+      limitWindowSeconds: 7 * 86400,
+      cycleStartMs: (WEEKLY_RESET_S - 7 * 86400) * 1000,
+    });
+    expect(windows[2]).toMatchObject({
+      limitWindowSeconds: 30 * 86400,
+      cycleStartMs: (MONTHLY_RESET_S - 30 * 86400) * 1000,
+    });
 
     expect(resolveAccountQuota(file, stores)).toMatchObject({
       status: 'low',
@@ -208,7 +221,7 @@ describe('cline pass account quota', () => {
     expect(singleWindows[0].description).toBeUndefined();
   });
 
-  it('preserves a monthly provider reset without inventing a window duration', () => {
+  it('derives the monthly window start from a 30 day cycle', () => {
     const file = makeFile();
     const { row, stores } = buildRow(file, {
       id: 'clinepassbridge-abc',
@@ -221,11 +234,11 @@ describe('cline pass account quota', () => {
     expect(windows[0]).toMatchObject({
       key: 'cline-pass:monthly',
       kind: 'monthly',
-      windowMode: 'calendar',
-      limitWindowSeconds: null,
+      windowMode: 'fixed',
+      limitWindowSeconds: 30 * 86400,
       resetAtMs: MONTHLY_RESET_S * 1000,
       resetAccuracy: 'exact',
-      cycleStartMs: null,
+      cycleStartMs: (MONTHLY_RESET_S - 30 * 86400) * 1000,
       cycleEndMs: MONTHLY_RESET_S * 1000,
     });
     expect(windows[0].resetLabel).not.toBe('-');

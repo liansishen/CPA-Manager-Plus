@@ -828,6 +828,18 @@ const buildSummaryQuotaDisplayWindow = (
   ];
 };
 
+// Cline reports only a reset timestamp per limit, so a window start is derived as
+// the reset timestamp minus the window length. The 5 hour and weekly limits have
+// published lengths; the monthly limit does not, so it uses a 30 day cycle.
+const CLINE_PASS_WINDOW_SECONDS: Partial<Record<AccountQuotaWindowKind, number>> = {
+  five_hour: 5 * 3600,
+  weekly: 7 * 86400,
+  monthly: 30 * 86400,
+};
+
+const clinePassWindowSeconds = (kind: AccountQuotaWindowKind): number | null =>
+  CLINE_PASS_WINDOW_SECONDS[kind] ?? null;
+
 export const buildAccountQuotaDisplayWindows = (
   row: AccountRow,
   options: BuildAccountQuotaDisplayWindowsOptions
@@ -839,7 +851,7 @@ export const buildAccountQuotaDisplayWindows = (
         const kind = ['five_hour', 'weekly', 'monthly'].includes(window.id)
           ? (window.id as AccountQuotaWindowKind)
           : 'unknown';
-        const duration = kind === 'five_hour' ? 5 * 3600 : kind === 'weekly' ? 7 * 86400 : null;
+        const duration = clinePassWindowSeconds(kind);
         const shared =
           quota.sharedCredentials !== null && quota.sharedCredentials > 1
             ? options.t('cline_pass_quota.shared_credentials', { count: quota.sharedCredentials })
@@ -854,14 +866,7 @@ export const buildAccountQuotaDisplayWindows = (
           resetAtMs: window.resetAtMs,
           resetAccuracy: window.resetAtMs !== null ? 'exact' : 'unknown',
           limitWindowSeconds: duration,
-          windowMode:
-            kind === 'five_hour'
-              ? 'rolling'
-              : kind === 'weekly'
-                ? 'fixed'
-                : kind === 'monthly'
-                  ? 'calendar'
-                  : 'unknown',
+          windowMode: duration !== null ? 'fixed' : 'unknown',
           source: 'cline-pass',
           observedAtMs: quota.observedAtMs,
           description: shared,
