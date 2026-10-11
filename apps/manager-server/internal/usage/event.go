@@ -218,6 +218,27 @@ type CacheInputContext struct {
 	ResolvedModel    string
 	RequestedModel   string
 	DisplayModel     string
+	// Breakdown mirrors the canonical non-overlapping input breakdown published
+	// with the payload (token_breakdown.input). It states whether the reported
+	// input already contains the cache buckets, so the mode no longer has to be
+	// guessed from provider or executor names.
+	BreakdownInputTotal       int64
+	BreakdownUncachedTokens   int64
+	BreakdownCacheReadTokens  int64
+	BreakdownCacheWriteTokens int64
+	HasBreakdownInput         bool
+}
+
+// WithBreakdown copies the canonical input breakdown from raw cache hints into the
+// context so the accounting mode can follow the published contract instead of
+// being guessed from provider or executor names.
+func (c CacheInputContext) WithBreakdown(hints RawCacheAccountingHints) CacheInputContext {
+	c.BreakdownInputTotal = hints.BreakdownInputTotal
+	c.BreakdownUncachedTokens = hints.BreakdownUncachedTokens
+	c.BreakdownCacheReadTokens = hints.BreakdownCacheReadTokens
+	c.BreakdownCacheWriteTokens = hints.BreakdownCacheWriteTokens
+	c.HasBreakdownInput = hints.HasBreakdownInput
+	return c
 }
 
 // EffectiveServiceTier returns the tier used for billing and aggregation.
@@ -253,10 +274,27 @@ type RawCacheAccountingHints struct {
 	ExplicitTotal    int64
 	HasExplicitTotal bool
 	ValidPayload     bool
+	// Breakdown* mirrors token_breakdown.input from the raw payload.
+	BreakdownInputTotal       int64
+	BreakdownUncachedTokens   int64
+	BreakdownCacheReadTokens  int64
+	BreakdownCacheWriteTokens int64
+	HasBreakdownInput         bool
 }
 
 func NormalizeCacheAccounting(context CacheInputContext, inputTokens, cachedTokens, cacheTokens, cacheReadTokens, cacheCreationTokens int64) CacheAccounting {
-	mode := InferCacheInputMode(context, cacheReadTokens, cacheCreationTokens)
+	mode := normalizeCacheInputMode(context.ExplicitMode)
+	if !isKnownCacheInputMode(mode) {
+		mode = ""
+	}
+	if mode == "" {
+		if derived, ok := breakdownCacheInputMode(context, inputTokens); ok {
+			mode = derived
+		}
+	}
+	if mode == "" {
+		mode = InferCacheInputMode(context, cacheReadTokens, cacheCreationTokens)
+	}
 	input := maxInt64(inputTokens, 0)
 	cacheRead := CompatibleCachedTokens(cachedTokens, cacheTokens, cacheReadTokens, cacheCreationTokens) + maxInt64(cacheReadTokens, 0)
 	cacheCreation := maxInt64(cacheCreationTokens, 0)
@@ -399,6 +437,47 @@ func classifyModelCacheInputMode(model string) (string, bool) {
 	return "", false
 }
 
+// isKnownCacheInputMode reports whether the mode is one of the accounting
+// conventions understood by this package.
+func isKnownCacheInputMode(mode string) bool {
+	switch mode {
+	case CacheInputModeIncluded, CacheInputModeSeparate, CacheInputModeReadIncludedCreationSeparate:
+		return true
+	}
+	return false
+}
+
+// breakdownCacheInputMode derives the accounting convention from the canonical
+// input breakdown published with the payload. The gateway normalizes every
+// provider's cache convention into that non-overlapping contract, so the raw
+// input total can be matched against the breakdown to tell whether it already
+// contains the cache buckets. An unrecognized shape yields no conclusion and
+// falls back to the name-based inference.
+func breakdownCacheInputMode(context CacheInputContext, inputTokens int64) (string, bool) {
+	if !context.HasBreakdownInput || inputTokens <= 0 || context.BreakdownInputTotal <= 0 {
+		return "", false
+	}
+	total := context.BreakdownInputTotal
+	uncached := context.BreakdownUncachedTokens
+	read := context.BreakdownCacheReadTokens
+	write := context.BreakdownCacheWriteTokens
+	if uncached < 0 || read < 0 || write < 0 || uncached+read+write != total {
+		return "", false
+	}
+	if read+write == 0 {
+		return "", false
+	}
+	switch {
+	case total == inputTokens && uncached == inputTokens-read-write:
+		return CacheInputModeIncluded, true
+	case uncached == inputTokens && total == inputTokens+read+write:
+		return CacheInputModeSeparate, true
+	case write > 0 && uncached == inputTokens-read && total == inputTokens+write:
+		return CacheInputModeReadIncludedCreationSeparate, true
+	}
+	return "", false
+}
+
 func RawCacheAccountingHintsFromJSON(raw string) RawCacheAccountingHints {
 	return rawCacheAccountingHintsFromJSON(raw, 0)
 }
@@ -418,11 +497,7 @@ func rawCacheAccountingHintsFromJSON(raw string, depth int) RawCacheAccountingHi
 	if detail, ok := record["detail"].(map[string]any); ok {
 		record = detail
 	}
-	hints := RawCacheAccountingHints{ExplicitMode: cacheInputModeFromRecord(record), ValidPayload: true}
-	if total, ok := explicitPositiveTotalFromRecord(record); ok {
-		hints.ExplicitTotal = total
-		hints.HasExplicitTotal = true
-	}
+	hints := cacheAccountingHintsFromRecord(record)
 	if nestedRaw := readString(record, "raw_json", "rawJson"); nestedRaw != "" {
 		nested := rawCacheAccountingHintsFromJSON(nestedRaw, depth+1)
 		if hints.ExplicitMode == "" {
@@ -432,8 +507,61 @@ func rawCacheAccountingHintsFromJSON(raw string, depth int) RawCacheAccountingHi
 			hints.ExplicitTotal = nested.ExplicitTotal
 			hints.HasExplicitTotal = true
 		}
+		if !hints.HasBreakdownInput && nested.HasBreakdownInput {
+			hints.BreakdownInputTotal = nested.BreakdownInputTotal
+			hints.BreakdownUncachedTokens = nested.BreakdownUncachedTokens
+			hints.BreakdownCacheReadTokens = nested.BreakdownCacheReadTokens
+			hints.BreakdownCacheWriteTokens = nested.BreakdownCacheWriteTokens
+			hints.HasBreakdownInput = true
+		}
 	}
 	return hints
+}
+
+// cacheAccountingHintsFromRecord reads the explicit mode, the explicit total, and
+// the canonical input breakdown from a decoded usage payload.
+func cacheAccountingHintsFromRecord(record map[string]any) RawCacheAccountingHints {
+	hints := RawCacheAccountingHints{ExplicitMode: cacheInputModeFromRecord(record), ValidPayload: true}
+	if total, ok := explicitPositiveTotalFromRecord(record); ok {
+		hints.ExplicitTotal = total
+		hints.HasExplicitTotal = true
+	}
+	if breakdown, ok := record["token_breakdown"].(map[string]any); ok {
+		if input, ok := breakdown["input"].(map[string]any); ok {
+			total, okTotal := positiveIntValue(input["total_tokens"])
+			uncached, okUncached := nonNegativeIntValue(input["uncached_tokens"])
+			read, okRead := nonNegativeIntValue(input["cache_read_tokens"])
+			write, okWrite := nonNegativeIntValue(input["cache_write_tokens"])
+			if okTotal && okUncached && okRead && okWrite {
+				hints.BreakdownInputTotal = total
+				hints.BreakdownUncachedTokens = uncached
+				hints.BreakdownCacheReadTokens = read
+				hints.BreakdownCacheWriteTokens = write
+				hints.HasBreakdownInput = true
+			}
+		}
+	}
+	return hints
+}
+
+// nonNegativeIntValue reads an optional token counter where zero is meaningful,
+// unlike positiveIntValue.
+func nonNegativeIntValue(value any) (int64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return int64(typed), typed >= 0
+	case json.Number:
+		parsed, err := typed.Int64()
+		return parsed, err == nil && parsed >= 0
+	case string:
+		parsed, err := strconv.ParseInt(strings.TrimSpace(typed), 10, 64)
+		return parsed, err == nil && parsed >= 0
+	case int64:
+		return typed, typed >= 0
+	case int:
+		return int64(typed), typed >= 0
+	}
+	return 0, false
 }
 
 func cacheInputModeFromRecord(record map[string]any) string {
@@ -615,15 +743,21 @@ func NormalizeRaw(raw []byte) (Event, error) {
 	requestServiceTier := readString(record, "request_service_tier", "requestServiceTier", "service_tier", "serviceTier")
 	responseServiceTier := readString(record, "response_service_tier", "responseServiceTier")
 	authProviderSnapshot := readString(record, "auth_provider_snapshot", "authProviderSnapshot")
+	accountingHints := cacheAccountingHintsFromRecord(record)
 	usageContext := CacheInputContext{
-		ExplicitMode:     cacheInputModeFromRecord(record),
-		ExecutorType:     executorType,
-		Provider:         provider,
-		ProviderSnapshot: authProviderSnapshot,
-		AuthType:         authType,
-		ResolvedModel:    resolvedModel,
-		RequestedModel:   requestedModel,
-		DisplayModel:     model,
+		ExplicitMode:              accountingHints.ExplicitMode,
+		ExecutorType:              executorType,
+		Provider:                  provider,
+		ProviderSnapshot:          authProviderSnapshot,
+		AuthType:                  authType,
+		ResolvedModel:             resolvedModel,
+		RequestedModel:            requestedModel,
+		DisplayModel:              model,
+		BreakdownInputTotal:       accountingHints.BreakdownInputTotal,
+		BreakdownUncachedTokens:   accountingHints.BreakdownUncachedTokens,
+		BreakdownCacheReadTokens:  accountingHints.BreakdownCacheReadTokens,
+		BreakdownCacheWriteTokens: accountingHints.BreakdownCacheWriteTokens,
+		HasBreakdownInput:         accountingHints.HasBreakdownInput,
 	}
 	serviceTier := EffectiveServiceTier(usageContext, requestServiceTier, "", responseServiceTier)
 	cacheAccounting := NormalizeCacheAccounting(usageContext, inputTokens, cachedTokens, cacheTokens, cacheReadTokens, cacheCreationTokens)

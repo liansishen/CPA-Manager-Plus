@@ -16,7 +16,7 @@ import (
 const (
 	UsageCacheAccountingMigrationName            = "usage_cache_accounting_v2"
 	UsageCacheAccountingSemanticsRevisionKey     = "usage_cache_accounting_semantics_revision"
-	CurrentUsageCacheAccountingSemanticsRevision = 2
+	CurrentUsageCacheAccountingSemanticsRevision = 3
 )
 
 const usageCacheAccountingCandidatePredicate = `(coalesce(cached_tokens, 0) != 0
@@ -425,7 +425,7 @@ func stageCacheAccountingRow(ctx context.Context, tx *sql.Tx, row cacheAccountin
 		DisplayModel:     row.DisplayModel,
 	}
 	accounting := usage.NormalizeCacheAccounting(
-		context,
+		context.WithBreakdown(hints),
 		row.InputTokens,
 		row.CachedTokens,
 		row.CacheTokens,
@@ -910,7 +910,12 @@ func reconcileSemanticsRevisionInTx(ctx context.Context, tx *sql.Tx, state *Stat
 		return false, nil
 	}
 
-	var hasAffectedDevinRow bool
+	// A row can disagree with the recomputed accounting when the derivation rules
+	// changed, so any such row triggers a rescan. The Devin clauses cover the
+	// earlier convention revision; the breakdown clause covers rows whose payload
+	// states that the reported input already contains the cache buckets while the
+	// stored mode claimed otherwise.
+	var hasAffectedRow bool
 	query := `select exists(
 		select 1 from usage_events
 		where (
@@ -930,15 +935,20 @@ func reconcileSemanticsRevisionInTx(ctx context.Context, tx *sql.Tx, state *Stat
 			or lower(trim(coalesce(requested_model, ''))) like 'devin/%'
 			or lower(trim(coalesce(model, ''))) = 'devin'
 			or lower(trim(coalesce(model, ''))) like 'devin/%'
+			or (
+				coalesce(input_tokens, 0) > 0
+				and lower(trim(coalesce(cache_input_mode, ''))) != 'included_in_input'
+				and raw_json like '%"token_breakdown"%'
+			)
 		)
 		limit 1
 	)`
-	if err := tx.QueryRowContext(ctx, query).Scan(&hasAffectedDevinRow); err != nil {
+	if err := tx.QueryRowContext(ctx, query).Scan(&hasAffectedRow); err != nil {
 		return false, err
 	}
 
 	nowMS := time.Now().UnixMilli()
-	if !hasAffectedDevinRow {
+	if !hasAffectedRow {
 		if _, err := tx.ExecContext(ctx, `insert into settings(key, value, updated_at_ms) values (?, ?, ?)
 			on conflict(key) do update set value = excluded.value, updated_at_ms = excluded.updated_at_ms`,
 			UsageCacheAccountingSemanticsRevisionKey, strconv.Itoa(CurrentUsageCacheAccountingSemanticsRevision), nowMS); err != nil {

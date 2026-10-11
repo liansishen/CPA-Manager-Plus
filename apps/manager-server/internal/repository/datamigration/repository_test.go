@@ -1083,7 +1083,7 @@ func TestUsageCacheAccountingSemanticsRevision18_1_CompletedDevinData(t *testing
 	runUsageCacheAccountingToCompletion(t, repo, 10)
 
 	assertAccounting(t, db, "devin-838", "read_included_creation_separate", 1767, 229788, 228021, 0, 231563)
-	assertRevision(t, db, "2")
+	assertRevision(t, db, "3")
 }
 
 func TestUsageCacheAccountingSemanticsRevision18_2_NoDevinData(t *testing.T) {
@@ -1115,7 +1115,7 @@ func TestUsageCacheAccountingSemanticsRevision18_2_NoDevinData(t *testing.T) {
 	if state.Status != StatusCompleted {
 		t.Fatalf("state.Status = %q, want %q", state.Status, StatusCompleted)
 	}
-	assertRevision(t, db, "2")
+	assertRevision(t, db, "3")
 }
 
 func TestUsageCacheAccountingSemanticsRevision18_3_Idempotency(t *testing.T) {
@@ -1143,7 +1143,7 @@ func TestUsageCacheAccountingSemanticsRevision18_3_Idempotency(t *testing.T) {
 		t.Fatalf("first discover: %v", err)
 	}
 	runUsageCacheAccountingToCompletion(t, repo, 10)
-	assertRevision(t, db, "2")
+	assertRevision(t, db, "3")
 
 	// 第二次调用 Discover
 	state2, err := repo.DiscoverUsageCacheAccounting(context.Background())
@@ -1199,7 +1199,7 @@ func TestUsageCacheAccountingSemanticsRevision18_4_UnappliedStagingCleared(t *te
 	if state.Status != StatusPending || state.TargetEventID != 1 {
 		t.Fatalf("state = %#v, want pending target=1", state)
 	}
-	assertRevision(t, db, "2")
+	assertRevision(t, db, "3")
 }
 
 func TestUsageCacheAccountingSemanticsRevision18_5_AppliedMigrationNotResetMidway(t *testing.T) {
@@ -1240,8 +1240,8 @@ func TestUsageCacheAccountingSemanticsRevision18_5_AppliedMigrationNotResetMidwa
 	// revision 暂未更新为 2
 	var rev sql.NullString
 	_ = db.QueryRow(`select value from settings where key = ?`, UsageCacheAccountingSemanticsRevisionKey).Scan(&rev)
-	if rev.Valid && rev.String == "2" {
-		t.Fatal("revision should not be updated to 2 while applied_rows > 0 in old pass")
+	if rev.Valid && rev.String == "3" {
+		t.Fatal("revision should not be updated to 3 while applied_rows > 0 in old pass")
 	}
 
 	// 完成当前 pass 的 clearing
@@ -1253,12 +1253,12 @@ func TestUsageCacheAccountingSemanticsRevision18_5_AppliedMigrationNotResetMidwa
 		t.Fatalf("discover after old pass complete: %v", err)
 	}
 	if state2.Status != StatusPending {
-		t.Fatalf("state2.Status = %q, want pending for revision 2 pass", state2.Status)
+		t.Fatalf("state2.Status = %q, want pending for revision 3 pass", state2.Status)
 	}
 	// 跑完新 pass
 	runUsageCacheAccountingToCompletion(t, repo, 10)
 	assertAccounting(t, db, "devin-838", "read_included_creation_separate", 1767, 229788, 228021, 0, 231563)
-	assertRevision(t, db, "2")
+	assertRevision(t, db, "3")
 }
 
 func TestUsageCacheAccountingSemanticsRevision18_6_DerivedRebuild(t *testing.T) {
@@ -1355,7 +1355,7 @@ func TestUsageCacheAccountingSemanticsRevision18_7_ActiveStatePersistsRevisionWi
 			}
 
 			// 验证 revision 确实在事务提交后持久化（不是仅在当前未提交的事务中可见）
-			assertRevision(t, db, "2")
+			assertRevision(t, db, "3")
 
 			// 再次调用 Discover，确认状态依然保持当前 active 状态，不被重置
 			state2, err := repo.DiscoverUsageCacheAccounting(context.Background())
@@ -1464,8 +1464,44 @@ func TestUsageCacheAccountingSemanticsRevision18_8_HistoricalDevinPredicates(t *
 				0,
 				tt.fixture.Total,
 			)
-			assertRevision(t, db, "2")
+			assertRevision(t, db, "3")
 		})
 	}
+}
+
+func TestUsageCacheAccountingSemanticsRevisionRescansBreakdownIncludedRows(t *testing.T) {
+	db := openMigrationTestDB(t)
+	markMigrationCompleted(t, db)
+
+	// The payload states that the reported input already contains the cache buckets
+	// while the stored mode claims otherwise, so the pass must run again.
+	insertAccountingEvent(t, db, accountingFixture{
+		Hash:             "cline-pass-included",
+		Provider:         "cline-pass",
+		Executor:         "executorAdapter",
+		Model:            "deepseek-flash",
+		Input:            538732,
+		CacheRead:        535808,
+		Cached:           535808,
+		StoredMode:       "separate_from_input",
+		StoredUncached:   538732,
+		StoredTotalInput: 1074540,
+		StoredRead:       535808,
+		Total:            540274,
+		RawJSON:          `{"tokens":{"input_tokens":538732,"output_tokens":1542,"cached_tokens":535808,"cache_read_tokens":535808,"total_tokens":540274},"token_breakdown":{"schema_version":2,"quality":"complete","input":{"total_tokens":538732,"uncached_tokens":2924,"cache_read_tokens":535808,"cache_write_tokens":0}}}`,
+	})
+
+	repo := New(db)
+	state, err := repo.DiscoverUsageCacheAccounting(context.Background())
+	if err != nil {
+		t.Fatalf("discover migration: %v", err)
+	}
+	if state.Status != StatusPending {
+		t.Fatalf("state.Status = %q, want pending after a breakdown-triggered rescan", state.Status)
+	}
+
+	runUsageCacheAccountingToCompletion(t, repo, 10)
+	assertAccounting(t, db, "cline-pass-included", "included_in_input", 2924, 538732, 535808, 0, 540274)
+	assertRevision(t, db, "3")
 }
 

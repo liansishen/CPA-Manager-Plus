@@ -140,5 +140,45 @@
       "cacheRead": 20,
       "cacheCreation": 10
     }
+  },
+  {
+    "name": "canonical breakdown shows the input already includes cache reads",
+    "context": {
+      "executorType": "executorAdapter",
+      "provider": "cline-pass",
+      "displayModel": "deepseek-flash",
+      "breakdownInputTotal": 538732,
+      "breakdownUncachedTokens": 2924,
+      "breakdownCacheReadTokens": 535808,
+      "breakdownCacheWriteTokens": 0,
+      "hasBreakdownInput": true
+    },
+    "tokens": { "input": 538732, "cached": 535808, "cache": 0, "read": 535808, "creation": 0 },
+    "expected": {
+      "mode": "included_in_input",
+      "uncached": 2924,
+      "totalInput": 538732,
+      "cacheRead": 535808,
+      "cacheCreation": 0
+    }
+  },
+  {
+    "name": "canonical breakdown keeps independent cache reads separate",
+    "context": {
+      "provider": "anthropic-claude",
+      "breakdownInputTotal": 120,
+      "breakdownUncachedTokens": 100,
+      "breakdownCacheReadTokens": 20,
+      "breakdownCacheWriteTokens": 0,
+      "hasBreakdownInput": true
+    },
+    "tokens": { "input": 100, "cached": 0, "cache": 0, "read": 20, "creation": 0 },
+    "expected": {
+      "mode": "separate_from_input",
+      "uncached": 100,
+      "totalInput": 120,
+      "cacheRead": 20,
+      "cacheCreation": 0
+    }
   }
 ]

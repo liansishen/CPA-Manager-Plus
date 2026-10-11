@@ -709,7 +709,7 @@ func (r *repository) ListRecent(ctx context.Context, limit int) ([]model.UsageEv
 		event.RequestServiceTier = requestServiceTier.String
 		event.ResponseServiceTier = responseServiceTier.String
 		hints := usage.RawCacheAccountingHintsFromJSON(rawJSON)
-		accounting := usage.NormalizeCacheAccounting(usage.CacheInputContext{
+		context := usage.CacheInputContext{
 			ExplicitMode:     hints.ExplicitMode,
 			ExecutorType:     event.ExecutorType,
 			Provider:         event.Provider,
@@ -717,7 +717,8 @@ func (r *repository) ListRecent(ctx context.Context, limit int) ([]model.UsageEv
 			ResolvedModel:    event.ResolvedModel,
 			RequestedModel:   event.RequestedModel,
 			DisplayModel:     event.Model,
-		}, event.InputTokens, event.CachedTokens, event.CacheTokens, event.CacheReadTokens, event.CacheCreationTokens)
+		}
+		accounting := usage.NormalizeCacheAccounting(context.WithBreakdown(hints), event.InputTokens, event.CachedTokens, event.CacheTokens, event.CacheReadTokens, event.CacheCreationTokens)
 		event.CacheInputMode = accounting.Mode
 		event.NormalizedUncachedInputTokens = accounting.UncachedInputTokens
 		event.NormalizedTotalInputTokens = accounting.TotalInputTokens

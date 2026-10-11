@@ -443,3 +443,150 @@ func TestDevinRepositoryRoundTrip(t *testing.T) {
 		t.Errorf("recalculated CacheCreationTokens = %d, want %d", recalculated.CacheCreationTokens, event.NormalizedCacheCreationTokens)
 	}
 }
+
+func TestCacheAccountingPrefersCanonicalBreakdown(t *testing.T) {
+	tests := []struct {
+		name         string
+		context      CacheInputContext
+		input        int64
+		cached       int64
+		read         int64
+		creation     int64
+		wantMode     string
+		wantUncached int64
+		wantTotal    int64
+	}{
+		{
+			name: "bridge payload whose input already contains cache reads",
+			context: CacheInputContext{
+				ExecutorType:              "executorAdapter",
+				Provider:                  "cline-pass",
+				DisplayModel:              "deepseek-flash",
+				BreakdownInputTotal:       538732,
+				BreakdownUncachedTokens:   2924,
+				BreakdownCacheReadTokens:  535808,
+				BreakdownCacheWriteTokens: 0,
+				HasBreakdownInput:         true,
+			},
+			input:        538732,
+			cached:       535808,
+			read:         535808,
+			wantMode:     CacheInputModeIncluded,
+			wantUncached: 2924,
+			wantTotal:    538732,
+		},
+		{
+			name: "independent payload keeps cache reads out of input",
+			context: CacheInputContext{
+				Provider:                  "anthropic-claude",
+				BreakdownInputTotal:       120,
+				BreakdownUncachedTokens:   100,
+				BreakdownCacheReadTokens:  20,
+				BreakdownCacheWriteTokens: 0,
+				HasBreakdownInput:         true,
+			},
+			input:        100,
+			read:         20,
+			wantMode:     CacheInputModeSeparate,
+			wantUncached: 100,
+			wantTotal:    120,
+		},
+		{
+			name: "cache writes stay separate while reads are included",
+			context: CacheInputContext{
+				Provider:                  "devin",
+				BreakdownInputTotal:       110,
+				BreakdownUncachedTokens:   80,
+				BreakdownCacheReadTokens:  20,
+				BreakdownCacheWriteTokens: 10,
+				HasBreakdownInput:         true,
+			},
+			input:        100,
+			read:         20,
+			creation:     10,
+			wantMode:     CacheInputModeReadIncludedCreationSeparate,
+			wantUncached: 80,
+			wantTotal:    110,
+		},
+		{
+			name: "explicit mode still wins over the breakdown",
+			context: CacheInputContext{
+				ExplicitMode:              CacheInputModeSeparate,
+				Provider:                  "cline-pass",
+				BreakdownInputTotal:       120,
+				BreakdownUncachedTokens:   100,
+				BreakdownCacheReadTokens:  20,
+				BreakdownCacheWriteTokens: 0,
+				HasBreakdownInput:         true,
+			},
+			input:        100,
+			read:         20,
+			wantMode:     CacheInputModeSeparate,
+			wantUncached: 100,
+			wantTotal:    120,
+		},
+		{
+			name: "unrecognized breakdown falls back to name inference",
+			context: CacheInputContext{
+				Provider:                  "cline-pass",
+				BreakdownInputTotal:       999,
+				BreakdownUncachedTokens:   1,
+				BreakdownCacheReadTokens:  2,
+				BreakdownCacheWriteTokens: 0,
+				HasBreakdownInput:         true,
+			},
+			input:        538732,
+			read:         535808,
+			wantMode:     CacheInputModeSeparate,
+			wantUncached: 538732,
+			wantTotal:    1074540,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := NormalizeCacheAccounting(tt.context, tt.input, tt.cached, 0, tt.read, tt.creation)
+			if got.Mode != tt.wantMode || got.UncachedInputTokens != tt.wantUncached || got.TotalInputTokens != tt.wantTotal {
+				t.Fatalf("accounting = %+v, want mode=%s uncached=%d total=%d", got, tt.wantMode, tt.wantUncached, tt.wantTotal)
+			}
+		})
+	}
+}
+
+func TestRawCacheAccountingHintsReadCanonicalBreakdown(t *testing.T) {
+	raw := `{"provider":"cline-pass","tokens":{"input_tokens":538732,"cache_read_tokens":535808},"token_breakdown":{"schema_version":2,"quality":"complete","input":{"total_tokens":538732,"uncached_tokens":2924,"cache_read_tokens":535808,"cache_write_tokens":0}}}`
+	hints := RawCacheAccountingHintsFromJSON(raw)
+	if !hints.HasBreakdownInput || hints.BreakdownInputTotal != 538732 || hints.BreakdownUncachedTokens != 2924 || hints.BreakdownCacheReadTokens != 535808 || hints.BreakdownCacheWriteTokens != 0 {
+		t.Fatalf("hints = %+v, want the canonical input breakdown", hints)
+	}
+
+	without := RawCacheAccountingHintsFromJSON(`{"tokens":{"input_tokens":10}}`)
+	if without.HasBreakdownInput {
+		t.Fatalf("unexpected breakdown: %+v", without)
+	}
+
+	nested := RawCacheAccountingHintsFromJSON(`{"detail":{"token_breakdown":{"input":{"total_tokens":120,"uncached_tokens":100,"cache_read_tokens":20,"cache_write_tokens":0}}}}`)
+	if !nested.HasBreakdownInput || nested.BreakdownInputTotal != 120 || nested.BreakdownUncachedTokens != 100 {
+		t.Fatalf("nested hints = %+v", nested)
+	}
+}
+
+func TestNormalizeRawUsesCanonicalBreakdownForPluginExecutor(t *testing.T) {
+	event, err := NormalizeRaw([]byte(`{
+"timestamp":"2026-10-11T12:09:44Z",
+"provider":"cline-pass",
+"executor_type":"executorAdapter",
+"model":"deepseek-flash",
+"alias":"deepseek-flash",
+"tokens":{"input_tokens":538732,"cached_tokens":535808,"cache_read_tokens":535808,"output_tokens":1542,"reasoning_tokens":929,"total_tokens":540274},
+"token_breakdown":{"schema_version":2,"quality":"complete","total_tokens":540274,"input":{"total_tokens":538732,"uncached_tokens":2924,"cache_read_tokens":535808,"cache_write_tokens":0}}
+}`))
+	if err != nil {
+		t.Fatalf("normalize raw: %v", err)
+	}
+	if event.CacheInputMode != CacheInputModeIncluded {
+		t.Fatalf("mode = %q, want %q", event.CacheInputMode, CacheInputModeIncluded)
+	}
+	if event.NormalizedTotalInputTokens != 538732 || event.NormalizedUncachedInputTokens != 2924 {
+		t.Fatalf("normalized input = total:%d uncached:%d, want 538732/2924", event.NormalizedTotalInputTokens, event.NormalizedUncachedInputTokens)
+	}
+}
