@@ -1,8 +1,5 @@
 import type { TFunction } from 'i18next';
-import {
-  buildClinePassEstimatePresentation,
-  getClinePassQuotaWindowLabel,
-} from '@/utils/quota/clinePassDisplay';
+import { getClinePassQuotaWindowLabel } from '@/utils/quota/clinePassDisplay';
 import type {
   AntigravityQuotaGroup,
   AntigravityQuotaState,
@@ -1333,30 +1330,20 @@ const buildDevinAccountQuotaWindows = (
 export const buildClinePassAccountQuotaWindows = (
   windows: ClinePassQuotaWindow[],
   t: TFunction,
-  stale = false,
   sharedCredentials: number | null = null
 ): AccountQuotaWindow[] =>
-  windows.map((window) => {
-    const estimate = buildClinePassEstimatePresentation(window, t, stale);
-    return {
-      id: `cline-pass:${window.id}`,
-      label: getClinePassQuotaWindowLabel(window.id, t),
-      remainingPercent: window.remainingPercent,
-      resetLabel: formatQuotaResetTime(window.resetAtMs),
-      resetAtMs: window.resetAtMs,
-      resetAccuracy: window.resetAtMs !== null ? 'exact' : 'unknown',
-      usageLabel:
-        [
-          estimate.amountLabel,
-          estimate.description,
-          sharedCredentials !== null && sharedCredentials > 1
-            ? t('cline_pass_quota.shared_credentials', { count: sharedCredentials })
-            : null,
-        ]
-          .filter(Boolean)
-          .join(' · ') || null,
-    };
-  });
+  windows.map((window) => ({
+    id: `cline-pass:${window.id}`,
+    label: getClinePassQuotaWindowLabel(window.id, t),
+    remainingPercent: window.remainingPercent,
+    resetLabel: formatQuotaResetTime(window.resetAtMs),
+    resetAtMs: window.resetAtMs,
+    resetAccuracy: window.resetAtMs !== null ? 'exact' : 'unknown',
+    usageLabel:
+      sharedCredentials !== null && sharedCredentials > 1
+        ? t('cline_pass_quota.shared_credentials', { count: sharedCredentials })
+        : null,
+  }));
 
 export const getAccountQuotaProviderLabel = (
   provider: MonitoringAccountQuotaProvider,
@@ -1513,12 +1500,7 @@ export const buildAccountQuotaEntryFromProviderState = (
       return applyProviderQuotaStateMetadata(
         {
           ...buildBaseAccountQuotaEntry({ ...target, planType }, t, metaLabels),
-          windows: buildClinePassAccountQuotaWindows(
-            quota.windows,
-            t,
-            quota.status === 'error',
-            quota.sharedCredentials
-          ),
+          windows: buildClinePassAccountQuotaWindows(quota.windows, t, quota.sharedCredentials),
           ...(quota.observedAtMs !== null ? { observedAtMs: quota.observedAtMs } : {}),
         },
         quota

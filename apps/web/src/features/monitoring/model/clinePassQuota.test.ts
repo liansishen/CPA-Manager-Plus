@@ -31,11 +31,6 @@ const t = ((key: string, options?: Record<string, unknown>) => {
     'cline_pass_quota.five_hour': '5-hour',
     'cline_pass_quota.weekly': 'Weekly',
     'cline_pass_quota.monthly': 'Monthly',
-    'cline_pass_quota.estimated_total': `Estimated total $${options?.amount ?? ''}`,
-    'cline_pass_quota.estimated_remaining': `Estimated remaining $${options?.amount ?? ''}`,
-    'cline_pass_quota.estimate_notice': 'estimate',
-    'cline_pass_quota.preliminary': 'preliminary',
-    'cline_pass_quota.historical': 'historical',
     'cline_pass_quota.shared_credentials': `Shared with ${options?.count ?? ''}`,
     'claude_quota.title': 'Claude Quota',
     'codex_quota.title': 'Codex Quota',
@@ -140,17 +135,14 @@ describe('monitoring cline pass quota entry', () => {
     );
 
     const weekly = entry!.windows[1];
-    expect(weekly.usageLabel).toContain('Estimated total $5.00');
-    expect(weekly.usageLabel).toContain('Estimated remaining $2.00');
-    expect(weekly.usageLabel).toContain('from plugin');
-    expect(weekly.usageLabel).toContain('Shared with 3');
+    expect(weekly.usageLabel).toBe('Shared with 3');
 
-    expect(
-      buildClinePassAccountQuotaWindows(state.windows, t, false, state.sharedCredentials)
-    ).toEqual(entry!.windows);
+    expect(buildClinePassAccountQuotaWindows(state.windows, t, state.sharedCredentials)).toEqual(
+      entry!.windows
+    );
   });
 
-  it('keeps cached windows on a non-ok response with an error and no estimated remaining', () => {
+  it('keeps cached windows on a non-ok response with an error', () => {
     const file = makeFile();
     const state = buildState(file, {
       id: 'clinepassbridge-abc',
@@ -183,8 +175,7 @@ describe('monitoring cline pass quota entry', () => {
     expect(entry.error).toBe('unavailable');
     expect(entry.failedAtMs).toBe((NOW_S - 30) * 1000);
     expect(entry.windows[0].remainingPercent).toBe(60);
-    expect(entry.windows[0].usageLabel).toContain('Estimated total $5.00');
-    expect(entry.windows[0].usageLabel).not.toContain('Estimated remaining');
+    expect(entry.windows[0].usageLabel).toBeNull();
   });
 
   it('renders empty and unknown data without inventing windows or remaining percent', () => {

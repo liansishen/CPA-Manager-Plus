@@ -1,9 +1,6 @@
 import type { TFunction } from 'i18next';
 import { getCredentialScopedQuotaState } from '@/utils/quota/credentialScope';
-import {
-  buildClinePassEstimatePresentation,
-  getClinePassQuotaWindowLabel,
-} from '@/utils/quota/clinePassDisplay';
+import { getClinePassQuotaWindowLabel } from '@/utils/quota/clinePassDisplay';
 import type {
   AuthFileItem,
   ClaudeExtraUsage,
@@ -843,11 +840,6 @@ export const buildAccountQuotaDisplayWindows = (
           ? (window.id as AccountQuotaWindowKind)
           : 'unknown';
         const duration = kind === 'five_hour' ? 5 * 3600 : kind === 'weekly' ? 7 * 86400 : null;
-        const estimate = buildClinePassEstimatePresentation(
-          window,
-          options.t,
-          quota.status === 'error'
-        );
         const shared =
           quota.sharedCredentials !== null && quota.sharedCredentials > 1
             ? options.t('cline_pass_quota.shared_credentials', { count: quota.sharedCredentials })
@@ -872,10 +864,7 @@ export const buildAccountQuotaDisplayWindows = (
                   : 'unknown',
           source: 'cline-pass',
           observedAtMs: quota.observedAtMs,
-          amountLabel: estimate.amountLabel,
-          description:
-            [estimate.amountLabel, estimate.description, shared].filter(Boolean).join(' · ') ||
-            undefined,
+          description: shared,
           nowMs: options.nowMs,
         });
       });

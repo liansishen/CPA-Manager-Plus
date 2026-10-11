@@ -117,4 +117,13 @@ describe('authFiles constants - cline-pass', () => {
     expect(isQuotaRefreshSupportedProvider('cline_pass')).toBe(true);
     expect(isQuotaRefreshSupportedProvider('CLINE-PASS')).toBe(true);
   });
+
+  it('returns valid distinct light and dark icons for cline-pass', () => {
+    const light = getAuthFileIcon('cline-pass', 'light');
+    const dark = getAuthFileIcon('cline-pass', 'dark');
+
+    expect(light).toBeTruthy();
+    expect(dark).toBeTruthy();
+    expect(light).not.toBe(dark);
+  });
 });

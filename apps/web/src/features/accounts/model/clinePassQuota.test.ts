@@ -38,11 +38,6 @@ const t = ((key: string, options?: Record<string, unknown>) => {
     'cline_pass_quota.weekly': 'Weekly',
     'cline_pass_quota.monthly': 'Monthly',
     'cline_pass_quota.shared_credentials': `Shared with ${options?.count ?? ''}`,
-    'cline_pass_quota.estimated_total': `Estimated total $${options?.amount ?? ''}`,
-    'cline_pass_quota.estimated_remaining': `Estimated remaining $${options?.amount ?? ''}`,
-    'cline_pass_quota.estimate_notice': 'estimate',
-    'cline_pass_quota.preliminary': 'preliminary',
-    'cline_pass_quota.historical': 'historical',
     'accounts.col_quota': 'Quota',
   };
   return translations[key] ?? key;
@@ -150,7 +145,7 @@ describe('cline pass account quota', () => {
     });
   });
 
-  it('preserves error and cached windows while suppressing the stale estimated remaining dollar', () => {
+  it('preserves error and cached windows without plugin dollar estimates', () => {
     const file = makeFile();
     const { row, stores, state } = buildRow(file, {
       id: 'clinepassbridge-abc',
@@ -188,8 +183,8 @@ describe('cline pass account quota', () => {
 
     const windows = buildDisplayWindows(row, stores);
     expect(windows[0].remainingPercent).toBe(60);
-    expect(windows[0].amountLabel).toContain('Estimated total $5.00');
-    expect(windows[0].amountLabel).not.toContain('Estimated remaining');
+    expect(windows[0].amountLabel).toBeUndefined();
+    expect(windows[0].description).toBeUndefined();
   });
 
   it('appends the shared-credential label only when more than one credential shares the window', () => {
