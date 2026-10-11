@@ -3884,6 +3884,7 @@
     "resolved_model_label": "路由模型：{{model}}",
     "requested_model": "请求模型",
     "resolved_model": "路由模型",
+    "upstream_model": "上游实际模型",
     "response_model": "响应模型",
     "model_mismatch": "模型不一致",
     "no_failures": "当前时间范围内没有失败调用。",

@@ -223,6 +223,9 @@ export type MonitoringEventRow = {
   headerErrorKind?: string;
   headerErrorCode?: string;
   headerTraceId?: string;
+  /** Upstream model and provider recovered from the Cline Pass bridge request log. */
+  upstreamModel?: string;
+  upstreamProvider?: string;
   taskKey: string;
   searchText: string;
 };

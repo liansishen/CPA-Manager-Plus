@@ -127,6 +127,11 @@ import {
   type StatusFilter,
 } from '@/features/monitoring/model/monitoringCenterPageModel';
 import { resolveMonitoringDimensionCounts } from '@/features/monitoring/model/monitoringAnalyticsModel';
+import {
+  applyClinePassUpstreamHits,
+  fetchClinePassUpstreamIndex,
+  type ClinePassUpstreamIndex,
+} from '@/features/monitoring/model/clinePassUpstreamLogs';
 import { useUsageData } from '@/features/monitoring/hooks/useUsageData';
 import { useHeaderSnapshotsLoader } from '@/features/monitoring/hooks/useHeaderSnapshotsLoader';
 import {
@@ -961,7 +966,26 @@ export function MonitoringCenterPage() {
     () => buildRealtimeMonitorRows(scopedStatsRows),
     [scopedStatsRows]
   );
-  const realtimeLogRows = useMemo(() => buildRealtimeLogRows(scopedRows), [scopedRows]);
+  const [clinePassUpstreamIndex, setClinePassUpstreamIndex] = useState<ClinePassUpstreamIndex>(
+    () => new Map()
+  );
+  useEffect(() => {
+    let cancelled = false;
+    void fetchClinePassUpstreamIndex(quotaRequestScope).then((index) => {
+      if (!cancelled) setClinePassUpstreamIndex(index);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [quotaRequestScope, monitoringLastRefreshedAt]);
+  const upstreamEnrichedRows = useMemo(
+    () => applyClinePassUpstreamHits(scopedRows, clinePassUpstreamIndex),
+    [scopedRows, clinePassUpstreamIndex]
+  );
+  const realtimeLogRows = useMemo(
+    () => buildRealtimeLogRows(upstreamEnrichedRows),
+    [upstreamEnrichedRows]
+  );
   const accountPagination = useMemo(
     () => buildPaginationState(sortedAccountRows, accountPage, accountPageSize),
     [accountPage, accountPageSize, sortedAccountRows]

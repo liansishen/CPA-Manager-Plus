@@ -1129,6 +1129,15 @@ export function RealtimeEventsPanel({
               const showResponseModelInTooltip = Boolean(
                 responseModel && (!resolvedModel || responseModel !== resolvedModel)
               );
+              const upstreamModel = row.upstreamModel?.trim() || '';
+              const upstreamProvider = row.upstreamProvider?.trim() || '';
+              const showUpstreamModel = Boolean(upstreamModel && upstreamModel !== requestedModel);
+              const hasUpstreamModelMismatch = Boolean(
+                upstreamModel &&
+                upstreamModel !== requestedModel &&
+                upstreamModel !== resolvedModel &&
+                upstreamModel !== responseModel
+              );
               const modelTooltipLines: string[] = [];
               if (requestedModel) {
                 modelTooltipLines.push(`${t('monitoring.requested_model')}: ${requestedModel}`);
@@ -1138,6 +1147,12 @@ export function RealtimeEventsPanel({
               }
               if (showResponseModelInTooltip) {
                 modelTooltipLines.push(`${t('monitoring.response_model')}: ${responseModel}`);
+              }
+              if (showUpstreamModel) {
+                const upstreamLabel = upstreamProvider
+                  ? `${upstreamModel} (${upstreamProvider})`
+                  : upstreamModel;
+                modelTooltipLines.push(`${t('monitoring.upstream_model')}: ${upstreamLabel}`);
               }
               if (hasResponseModelMismatch) {
                 modelTooltipLines.push(t('monitoring.model_mismatch'));
@@ -1207,6 +1222,18 @@ export function RealtimeEventsPanel({
                           <span className={styles.realtimeModelMismatchBadge}>
                             {t('monitoring.model_mismatch')}
                           </span>
+                        </div>
+                      ) : null}
+                      {showUpstreamModel ? (
+                        <div className={styles.realtimeModelResponseLine}>
+                          <small className={`${styles.monoCell} ${styles.realtimeModelRoutedText}`}>
+                            {`↳ ${upstreamModel}${upstreamProvider ? ` · ${upstreamProvider}` : ''}`}
+                          </small>
+                          {hasUpstreamModelMismatch ? (
+                            <span className={styles.realtimeModelMismatchBadge}>
+                              {t('monitoring.model_mismatch')}
+                            </span>
+                          ) : null}
                         </div>
                       ) : null}
                     </div>

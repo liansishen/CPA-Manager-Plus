@@ -3889,6 +3889,7 @@
     "resolved_model_label": "Routed model: {{model}}",
     "requested_model": "Requested model",
     "resolved_model": "Routed model",
+    "upstream_model": "Upstream served model",
     "response_model": "Response model",
     "model_mismatch": "Model mismatch",
     "no_failures": "No failed calls in the selected range.",
