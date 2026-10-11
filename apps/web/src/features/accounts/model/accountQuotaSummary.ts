@@ -2,6 +2,7 @@ import type {
   AntigravityQuotaState,
   AuthFileItem,
   ClaudeQuotaState,
+  ClinePassQuotaState,
   CodexQuotaState,
   DevinQuotaState,
   KimiQuotaState,
@@ -75,6 +76,7 @@ export interface AccountQuotaSummary {
 export interface AccountQuotaStores {
   antigravityQuota: Record<string, AntigravityQuotaState>;
   claudeQuota: Record<string, ClaudeQuotaState>;
+  clinePassQuota: Record<string, ClinePassQuotaState>;
   codexQuota: Record<string, CodexQuotaState>;
   devinQuota: Record<string, DevinQuotaState>;
   kimiQuota: Record<string, KimiQuotaState>;
@@ -973,6 +975,31 @@ export const resolveAccountQuota = (
       ),
       headerObservationFields
     );
+  }
+
+  if (provider === 'cline-pass') {
+    const quota = getCredentialScopedQuotaState(stores.clinePassQuota, file);
+    if (!quota) return emptyQuota(filePlanType);
+    const planType = quota.planType ?? filePlanType;
+    if (quota.status === 'loading') return loadingQuota(planType);
+    const summary = quotaFromRemainingWindows(
+      quota.windows.map((window) => ({
+        remainingPercent: window.remainingPercent,
+        resetAtMs: window.resetAtMs,
+        resetAccuracy: window.resetAtMs !== null ? 'exact' : 'unknown',
+      })),
+      planType,
+      { fetchedAtMs: quota.fetchedAtMs, observedAtMs: quota.observedAtMs ?? undefined }
+    );
+    return quota.status === 'error'
+      ? {
+          ...summary,
+          status: 'error',
+          error: quota.error,
+          errorStatus: quota.errorStatus,
+          failedAtMs: quota.failedAtMs,
+        }
+      : summary;
   }
 
   if (provider === 'claude') {

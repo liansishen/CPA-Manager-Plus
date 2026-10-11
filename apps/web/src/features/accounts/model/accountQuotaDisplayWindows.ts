@@ -1,5 +1,9 @@
 import type { TFunction } from 'i18next';
 import { getCredentialScopedQuotaState } from '@/utils/quota/credentialScope';
+import {
+  buildClinePassEstimatePresentation,
+  getClinePassQuotaWindowLabel,
+} from '@/utils/quota/clinePassDisplay';
 import type {
   AuthFileItem,
   ClaudeExtraUsage,
@@ -42,6 +46,7 @@ export type AccountQuotaWindowKind =
 export type AccountQuotaWindowSource =
   | 'codex'
   | 'claude'
+  | 'cline-pass'
   | 'antigravity'
   | 'devin'
   | 'kimi'
@@ -830,6 +835,52 @@ export const buildAccountQuotaDisplayWindows = (
   row: AccountRow,
   options: BuildAccountQuotaDisplayWindowsOptions
 ): AccountQuotaDisplayWindow[] => {
+  if (row.provider === 'cline-pass') {
+    const quota = getCredentialScopedQuotaState(options.stores.clinePassQuota, row.raw);
+    if (quota) {
+      return quota.windows.map((window) => {
+        const kind = ['five_hour', 'weekly', 'monthly'].includes(window.id)
+          ? (window.id as AccountQuotaWindowKind)
+          : 'unknown';
+        const duration = kind === 'five_hour' ? 5 * 3600 : kind === 'weekly' ? 7 * 86400 : null;
+        const estimate = buildClinePassEstimatePresentation(
+          window,
+          options.t,
+          quota.status === 'error'
+        );
+        const shared =
+          quota.sharedCredentials !== null && quota.sharedCredentials > 1
+            ? options.t('cline_pass_quota.shared_credentials', { count: quota.sharedCredentials })
+            : undefined;
+        return buildAccountQuotaDisplayWindow({
+          key: `cline-pass:${window.id}`,
+          label: getClinePassQuotaWindowLabel(window.id, options.t),
+          kind,
+          remainingPercent: window.remainingPercent,
+          usedPercent: window.usedPercent,
+          resetLabel: window.resetAtMs !== null ? formatQuotaResetTime(window.resetAtMs) : '-',
+          resetAtMs: window.resetAtMs,
+          resetAccuracy: window.resetAtMs !== null ? 'exact' : 'unknown',
+          limitWindowSeconds: duration,
+          windowMode:
+            kind === 'five_hour'
+              ? 'rolling'
+              : kind === 'weekly'
+                ? 'fixed'
+                : kind === 'monthly'
+                  ? 'calendar'
+                  : 'unknown',
+          source: 'cline-pass',
+          observedAtMs: quota.observedAtMs,
+          amountLabel: estimate.amountLabel,
+          description:
+            [estimate.amountLabel, estimate.description, shared].filter(Boolean).join(' · ') ||
+            undefined,
+          nowMs: options.nowMs,
+        });
+      });
+    }
+  }
   if (row.provider === 'codex') {
     const windows = buildCodexQuotaDisplayWindows(row, options);
     if (windows.length) return windows;

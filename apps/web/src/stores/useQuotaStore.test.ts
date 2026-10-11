@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AntigravityQuotaState,
   ClaudeQuotaState,
+  ClinePassQuotaState,
   CodexQuotaState,
   DevinQuotaState,
   KimiQuotaState,
@@ -458,6 +459,53 @@ describe('useQuotaStore persistence', () => {
     expect(useQuotaStore.getState().cacheGeneration).toBe(generation + 1);
     expect(useQuotaStore.getState().codexQuota).toEqual({});
     expect(await readPersistedQuotaScope()).toBe('scope-b');
+  });
+
+  it('persists Cline Pass evidence and isolates it by connection scope', async () => {
+    const { useQuotaStore } = await import('./useQuotaStore');
+    const { CLINE_PASS_CONFIG } = await import('@/components/quota');
+    const { STORAGE_KEY_QUOTA_CACHE } = await import('@/utils/constants');
+    const { obfuscatedStorage } = await import('@/services/storage/secureStorage');
+    const file = {
+      name: 'clinepassbridge-test.json',
+      type: 'cline-pass',
+      auth_index: 'cline-auth',
+    };
+    const state = CLINE_PASS_CONFIG.buildSuccessState(
+      {
+        windows: [],
+        planType: 'Cline Pass (Monthly)',
+        planEndMs: null,
+        observedAtMs: 2_000,
+        checkedAtMs: 3_000,
+        sharedCredentials: 2,
+        providerStatus: 'ok',
+      },
+      file
+    );
+    const key = state.authFileKey!;
+    useQuotaStore.getState().activateQuotaCacheScope('cline-a');
+    useQuotaStore.getState().setClinePassQuota({
+      [key]: state,
+      loading: CLINE_PASS_CONFIG.buildLoadingState(file),
+      unverified: { ...state, authFileIdentityVerified: false },
+    });
+    const persisted = obfuscatedStorage.getItem<{
+      state: { clinePassQuota: Record<string, ClinePassQuotaState> };
+    }>(STORAGE_KEY_QUOTA_CACHE);
+    expect(Object.keys(persisted!.state.clinePassQuota)).toEqual([key]);
+    await useQuotaStore.persist.rehydrate();
+    expect(useQuotaStore.getState().clinePassQuota[key]).toMatchObject({
+      sharedCredentials: 2,
+      status: 'success',
+    });
+    useQuotaStore.getState().activateQuotaCacheScope('cline-a');
+    expect(useQuotaStore.getState().clinePassQuota[key]).toBeDefined();
+    useQuotaStore.getState().activateQuotaCacheScope('cline-b');
+    expect(useQuotaStore.getState().clinePassQuota).toEqual({});
+    useQuotaStore.getState().setClinePassQuota({ [key]: state });
+    useQuotaStore.getState().clearQuotaCache();
+    expect(useQuotaStore.getState().clinePassQuota).toEqual({});
   });
 
   it('rejects stale async commits after the connection scope changes', async () => {

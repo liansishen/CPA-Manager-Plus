@@ -7,6 +7,7 @@ import {
 import {
   isAntigravityFile,
   isClaudeFile,
+  isClinePassFile,
   isCodexFile,
   isDevinFile,
   isDisabledAuthFile,
@@ -22,6 +23,7 @@ import type { MonitoringAccountRow } from './hooks/useMonitoringData';
 export type MonitoringAccountQuotaProvider =
   | 'antigravity'
   | 'claude'
+  | 'cline-pass'
   | 'codex'
   | 'devin'
   | 'gemini'
@@ -64,6 +66,7 @@ export const resolveMonitoringAccountQuotaProvider = (
 ): MonitoringAccountQuotaProvider | null => {
   if (isCodexFile(file)) return 'codex';
   if (isClaudeFile(file)) return 'claude';
+  if (isClinePassFile(file)) return 'cline-pass';
   if (isAntigravityFile(file)) return 'antigravity';
   if (isDevinFile(file)) return 'devin';
   if (isKimiFile(file)) return 'kimi';

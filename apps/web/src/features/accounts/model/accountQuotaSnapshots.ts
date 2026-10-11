@@ -603,7 +603,7 @@ export const buildAccountQuotaSnapshotQueryAccounts = (
   );
   return rows.flatMap((row) => {
     const target = targets.get(row.selectionKey);
-    if (!target || !['codex', 'claude', 'antigravity', 'kimi', 'xai', 'devin', 'meta'].includes(row.provider)) {
+    if (!target || !['codex', 'claude', 'antigravity', 'kimi', 'xai', 'devin', 'meta', 'cline-pass'].includes(row.provider)) {
       return [];
     }
     return [
@@ -1070,6 +1070,7 @@ const snapshotDefinition = (
   const provider: AccountQuotaWindowSource =
     options.provider === 'codex' ||
     options.provider === 'claude' ||
+    options.provider === 'cline-pass' ||
     options.provider === 'antigravity' ||
     options.provider === 'kimi' ||
     options.provider === 'meta' ||

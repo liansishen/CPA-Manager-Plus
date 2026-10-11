@@ -25,6 +25,7 @@ import { accountWindowUsageRequestKey } from './accountWindowUsageRows';
 const emptyStores = (): AccountQuotaStores => ({
   antigravityQuota: {},
   claudeQuota: {},
+  clinePassQuota: {},
   codexQuota: {},
   devinQuota: {},
   kimiQuota: {},

@@ -49,6 +49,7 @@ import {
 import {
   ANTIGRAVITY_CONFIG,
   CLAUDE_CONFIG,
+  CLINE_PASS_CONFIG,
   CODEX_CONFIG,
   CODEX_SUMMARY_CONFIG,
   DEVIN_CONFIG,
@@ -1371,6 +1372,7 @@ export function AccountsPage() {
   });
   const antigravityQuota = useQuotaStore((state) => state.antigravityQuota);
   const claudeQuota = useQuotaStore((state) => state.claudeQuota);
+  const clinePassQuota = useQuotaStore((state) => state.clinePassQuota);
   const codexQuota = useQuotaStore((state) => state.codexQuota);
   const devinQuota = useQuotaStore((state) => state.devinQuota);
   const kimiQuota = useQuotaStore((state) => state.kimiQuota);
@@ -1380,16 +1382,27 @@ export function AccountsPage() {
     () => ({
       antigravityQuota,
       claudeQuota,
+      clinePassQuota,
       codexQuota,
       devinQuota,
       kimiQuota,
       metaQuota,
       xaiQuota,
     }),
-    [antigravityQuota, claudeQuota, codexQuota, devinQuota, kimiQuota, metaQuota, xaiQuota]
+    [
+      antigravityQuota,
+      claudeQuota,
+      clinePassQuota,
+      codexQuota,
+      devinQuota,
+      kimiQuota,
+      metaQuota,
+      xaiQuota,
+    ]
   );
   const setAntigravityQuota = useQuotaStore((state) => state.setAntigravityQuota);
   const setClaudeQuota = useQuotaStore((state) => state.setClaudeQuota);
+  const setClinePassQuota = useQuotaStore((state) => state.setClinePassQuota);
   const setCodexQuota = useQuotaStore((state) => state.setCodexQuota);
   const setDevinQuota = useQuotaStore((state) => state.setDevinQuota);
   const setKimiQuota = useQuotaStore((state) => state.setKimiQuota);
@@ -3046,6 +3059,9 @@ export function AccountsPage() {
         );
       };
       switch (normalizedProvider) {
+        case CLINE_PASS_CONFIG.type:
+          prune(CLINE_PASS_CONFIG, setClinePassQuota);
+          break;
         case CLAUDE_CONFIG.type:
           prune(CLAUDE_CONFIG, setClaudeQuota);
           break;
@@ -3074,6 +3090,7 @@ export function AccountsPage() {
       invalidateInspectionSummaryRequest,
       setAntigravityQuota,
       setClaudeQuota,
+      setClinePassQuota,
       setCredentialEvidenceBoundaries,
       setCodexQuota,
       setDevinQuota,
@@ -3892,6 +3909,14 @@ export function AccountsPage() {
             fetchedAtMs = state.fetchedAtMs;
             if (state.quotaInventoryObserved !== true) inventoryMode = 'partial';
             break;
+          }
+          break;
+        }
+        case CLINE_PASS_CONFIG.type: {
+          const state = getCredentialScopedQuotaState(baseQuotaStores.clinePassQuota, row.raw);
+          if (state?.status === 'success' && state.windows.length > 0) {
+            fetchedAtMs = state.observedAtMs ?? undefined;
+            inventoryMode = 'partial';
           }
           break;
         }
@@ -6453,6 +6478,21 @@ export function AccountsPage() {
           });
           return outcome;
         }
+        case CLINE_PASS_CONFIG.type: {
+          const result = await refreshWithConfig(
+            CLINE_PASS_CONFIG,
+            setClinePassQuota,
+            getScopedQuotaState(CLINE_PASS_CONFIG, baseQuotaStores.clinePassQuota, row.raw)
+          );
+          if (result?.state.status === 'error') {
+            return {
+              status: 'error',
+              error: result.state.error ?? t('cline_pass_quota.request_failed'),
+              errorStatus: result.state.errorStatus,
+            };
+          }
+          return toAccountQuotaRefreshOutcome(result);
+        }
         case CLAUDE_CONFIG.type:
           return toAccountQuotaRefreshOutcome(
             await refreshWithConfig(
@@ -6509,6 +6549,7 @@ export function AccountsPage() {
       invalidateCodexCredentialStatusForSelectionKeys,
       setAntigravityQuota,
       setClaudeQuota,
+      setClinePassQuota,
       setCodexQuota,
       setDevinQuota,
       setKimiQuota,

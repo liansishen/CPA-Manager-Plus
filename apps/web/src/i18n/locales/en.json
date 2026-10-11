@@ -2166,6 +2166,7 @@
     "filter_kimi": "Kimi",
     "filter_aistudio": "AIStudio",
     "filter_claude": "Claude",
+    "filter_cline-pass": "Cline Pass",
     "filter_codex": "Codex",
     "filter_antigravity": "Antigravity",
     "filter_xai": "xAI",
@@ -2297,6 +2298,23 @@
     "load_failed": "Subscription failed: {{message}}",
     "missing_auth_index": "Auth file missing auth_index",
     "empty_data": "No subscription data"
+  },
+  "cline_pass_quota": {
+    "title": "Cline Pass quota",
+    "five_hour": "5-hour limit",
+    "weekly": "Weekly limit",
+    "monthly": "Monthly limit",
+    "estimated_total": "Estimated total ${{amount}}",
+    "estimated_remaining": "Estimated remaining ${{amount}}",
+    "estimate_notice": "Dollar amounts are plugin estimates",
+    "preliminary": "Preliminary estimate",
+    "historical": "Historical estimate",
+    "shared_credentials": "Shared by {{count}} credentials",
+    "missing_identity": "Unable to identify the Cline Pass credential",
+    "disabled": "Cline Pass credential is disabled",
+    "request_failed": "Failed to fetch Cline Pass quota",
+    "invalid_response": "Invalid Cline Pass quota response",
+    "empty": "No Cline Pass quota data"
   },
   "claude_quota": {
     "title": "Claude Quota",

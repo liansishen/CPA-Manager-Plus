@@ -27,12 +27,21 @@ export type AuthFileModelItem = {
 };
 export type AuthFileIconAsset = string | { light: string; dark: string };
 
-export type QuotaProviderType = 'antigravity' | 'claude' | 'codex' | 'kimi' | 'xai' | 'devin' | 'meta';
+export type QuotaProviderType =
+  | 'antigravity'
+  | 'claude'
+  | 'cline-pass'
+  | 'codex'
+  | 'kimi'
+  | 'xai'
+  | 'devin'
+  | 'meta';
 export type OAuthConfigLoadState = 'loading' | 'ready' | 'unsupported' | 'error';
 
 export const QUOTA_PROVIDER_TYPES = new Set<QuotaProviderType>([
   'antigravity',
   'claude',
+  'cline-pass',
   'codex',
   'kimi',
   'xai',
@@ -203,6 +212,7 @@ export const getTypeLabel = (t: TFunction, type: string): string => {
   if (translated !== key) return translated;
   if (providerKey === 'iflow') return 'iFlow';
   if (providerKey === 'meta') return 'Muse (Meta)';
+  if (providerKey === 'cline-pass') return 'Cline Pass';
   return type.charAt(0).toUpperCase() + type.slice(1);
 };
 

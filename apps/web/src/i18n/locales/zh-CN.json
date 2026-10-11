@@ -2164,6 +2164,7 @@
     "filter_kimi": "Kimi",
     "filter_aistudio": "AIStudio",
     "filter_claude": "Claude",
+    "filter_cline-pass": "Cline Pass",
     "filter_codex": "Codex",
     "filter_antigravity": "Antigravity",
     "filter_xai": "xAI",
@@ -2295,6 +2296,23 @@
     "load_failed": "订阅获取失败：{{message}}",
     "missing_auth_index": "认证文件缺少 auth_index",
     "empty_data": "暂无订阅数据"
+  },
+  "cline_pass_quota": {
+    "title": "Cline Pass 额度",
+    "five_hour": "5 小时额度",
+    "weekly": "每周额度",
+    "monthly": "每月额度",
+    "estimated_total": "估算总额 ${{amount}}",
+    "estimated_remaining": "估算剩余 ${{amount}}",
+    "estimate_notice": "美元金额为插件估算值",
+    "preliminary": "初步估算",
+    "historical": "历史估算",
+    "shared_credentials": "{{count}} 个凭证共享额度",
+    "missing_identity": "无法识别 Cline Pass 凭证",
+    "disabled": "Cline Pass 凭证已禁用",
+    "request_failed": "获取 Cline Pass 额度失败",
+    "invalid_response": "Cline Pass 额度响应无效",
+    "empty": "暂无 Cline Pass 额度数据"
   },
   "claude_quota": {
     "title": "Claude 额度",

@@ -1,9 +1,15 @@
 import type { TFunction } from 'i18next';
+import {
+  buildClinePassEstimatePresentation,
+  getClinePassQuotaWindowLabel,
+} from '@/utils/quota/clinePassDisplay';
 import type {
   AntigravityQuotaGroup,
   AntigravityQuotaState,
   AuthFileItem,
   ClaudeQuotaState,
+  ClinePassQuotaState,
+  ClinePassQuotaWindow,
   ClaudeQuotaWindow,
   CodexQuotaState,
   CodexQuotaWindow,
@@ -1324,6 +1330,34 @@ const buildDevinAccountQuotaWindows = (
     };
   });
 
+export const buildClinePassAccountQuotaWindows = (
+  windows: ClinePassQuotaWindow[],
+  t: TFunction,
+  stale = false,
+  sharedCredentials: number | null = null
+): AccountQuotaWindow[] =>
+  windows.map((window) => {
+    const estimate = buildClinePassEstimatePresentation(window, t, stale);
+    return {
+      id: `cline-pass:${window.id}`,
+      label: getClinePassQuotaWindowLabel(window.id, t),
+      remainingPercent: window.remainingPercent,
+      resetLabel: formatQuotaResetTime(window.resetAtMs),
+      resetAtMs: window.resetAtMs,
+      resetAccuracy: window.resetAtMs !== null ? 'exact' : 'unknown',
+      usageLabel:
+        [
+          estimate.amountLabel,
+          estimate.description,
+          sharedCredentials !== null && sharedCredentials > 1
+            ? t('cline_pass_quota.shared_credentials', { count: sharedCredentials })
+            : null,
+        ]
+          .filter(Boolean)
+          .join(' · ') || null,
+    };
+  });
+
 export const getAccountQuotaProviderLabel = (
   provider: MonitoringAccountQuotaProvider,
   t: TFunction
@@ -1331,6 +1365,8 @@ export const getAccountQuotaProviderLabel = (
   switch (provider) {
     case 'antigravity':
       return t('antigravity_quota.title');
+    case 'cline-pass':
+      return t('cline_pass_quota.title');
     case 'claude':
       return t('claude_quota.title');
     case 'kimi':
@@ -1355,6 +1391,8 @@ const getAccountQuotaEmptyMessage = (provider: MonitoringAccountQuotaProvider, t
   switch (provider) {
     case 'antigravity':
       return t('antigravity_quota.empty_models');
+    case 'cline-pass':
+      return t('cline_pass_quota.empty');
     case 'claude':
       return t('claude_quota.empty_windows');
     case 'kimi':
@@ -1400,6 +1438,7 @@ const buildBaseAccountQuotaEntry = (
 export type MonitoringQuotaStores = {
   antigravityQuota: Record<string, AntigravityQuotaState>;
   claudeQuota: Record<string, ClaudeQuotaState>;
+  clinePassQuota: Record<string, ClinePassQuotaState>;
   codexQuota: Record<string, CodexQuotaState>;
   devinQuota: Record<string, DevinQuotaState>;
   kimiQuota: Record<string, KimiQuotaState>;
@@ -1409,6 +1448,7 @@ export type MonitoringQuotaStores = {
 export type MonitoringProviderQuotaState =
   | AntigravityQuotaState
   | ClaudeQuotaState
+  | ClinePassQuotaState
   | CodexQuotaState
   | DevinQuotaState
   | KimiQuotaState
@@ -1457,6 +1497,29 @@ export const buildAccountQuotaEntryFromProviderState = (
           ...buildBaseAccountQuotaEntry({ ...target, planType }, t),
           planType,
           windows: buildAntigravityAccountQuotaWindows(quota.groups),
+        },
+        quota
+      );
+    }
+    case 'cline-pass': {
+      const quota = state as ClinePassQuotaState;
+      const planType = quota.planType ?? target.planType;
+      const metaLabels = [
+        planType ? `${t('plans.label')}: ${planType}` : null,
+        quota.sharedCredentials !== null && quota.sharedCredentials > 1
+          ? t('cline_pass_quota.shared_credentials', { count: quota.sharedCredentials })
+          : null,
+      ].filter((label): label is string => Boolean(label));
+      return applyProviderQuotaStateMetadata(
+        {
+          ...buildBaseAccountQuotaEntry({ ...target, planType }, t, metaLabels),
+          windows: buildClinePassAccountQuotaWindows(
+            quota.windows,
+            t,
+            quota.status === 'error',
+            quota.sharedCredentials
+          ),
+          ...(quota.observedAtMs !== null ? { observedAtMs: quota.observedAtMs } : {}),
         },
         quota
       );
@@ -1577,6 +1640,12 @@ export const buildCachedAccountQuotaEntry = (
       return buildAccountQuotaEntryFromProviderState(
         target,
         getCredentialScopedQuotaState(stores.antigravityQuota, target.file),
+        t
+      );
+    case 'cline-pass':
+      return buildAccountQuotaEntryFromProviderState(
+        target,
+        getCredentialScopedQuotaState(stores.clinePassQuota, target.file),
         t
       );
     case 'claude':

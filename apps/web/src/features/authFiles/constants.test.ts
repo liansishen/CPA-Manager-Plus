@@ -109,3 +109,12 @@ describe('authFiles constants - meta', () => {
     expect(isQuotaRefreshSupportedProvider('')).toBe(false);
   });
 });
+
+describe('authFiles constants - cline-pass', () => {
+  it('registers cline-pass as a quota-refreshable provider type', () => {
+    expect((QUOTA_PROVIDER_TYPES as Set<string>).has('cline-pass')).toBe(true);
+    expect(isQuotaRefreshSupportedProvider('cline-pass')).toBe(true);
+    expect(isQuotaRefreshSupportedProvider('cline_pass')).toBe(true);
+    expect(isQuotaRefreshSupportedProvider('CLINE-PASS')).toBe(true);
+  });
+});

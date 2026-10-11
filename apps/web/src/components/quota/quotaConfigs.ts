@@ -4,6 +4,8 @@ import type {
   AuthFileItem,
   ClaudeQuotaState,
   CodexQuotaState,
+  ClinePassQuotaData,
+  ClinePassQuotaState,
   CodexQuotaWindow,
   CodexRateLimitResetCredit,
   CredentialScopedQuotaState,
@@ -28,6 +30,7 @@ import {
   buildCodexQuotaWindows,
   fetchAntigravityQuota,
   fetchClaudeQuota,
+  fetchClinePassQuota,
   fetchCodexQuota,
   fetchCodexQuotaSummary,
   fetchDevinQuota,
@@ -60,7 +63,15 @@ import {
   scopeQuotaStateToCredential,
 } from '@/utils/quota/credentialScope';
 
-type QuotaType = 'antigravity' | 'claude' | 'codex' | 'kimi' | 'xai' | 'devin' | 'meta';
+type QuotaType =
+  | 'antigravity'
+  | 'claude'
+  | 'cline-pass'
+  | 'codex'
+  | 'kimi'
+  | 'xai'
+  | 'devin'
+  | 'meta';
 
 export type { QuotaFetchContext };
 
@@ -908,3 +919,42 @@ export const META_CONFIG: QuotaConfig<MetaQuotaState, MetaQuotaData> = {
   scopeState: scopeCredentialQuotaState,
 };
 
+export const CLINE_PASS_CONFIG: QuotaConfig<ClinePassQuotaState, ClinePassQuotaData> = {
+  type: 'cline-pass',
+  i18nPrefix: 'cline_pass_quota',
+  fetchQuota: fetchClinePassQuota,
+  getStoreKey: getQuotaCredentialStoreKey,
+  buildLoadingState: (file) => ({
+    status: 'loading',
+    windows: [],
+    planType: null,
+    planEndMs: null,
+    observedAtMs: null,
+    checkedAtMs: null,
+    sharedCredentials: null,
+    providerStatus: 'loading',
+    ...buildQuotaCredentialIdentity(file),
+  }),
+  buildSuccessState: (data, file) => ({
+    ...data,
+    status: data.error ? 'error' : 'success',
+    ...buildQuotaCredentialIdentity(file),
+    fetchedAtMs: data.observedAtMs ?? undefined,
+    failedAtMs: data.error ? (data.checkedAtMs ?? Date.now()) : undefined,
+  }),
+  buildErrorState: (message, status, file) => ({
+    status: 'error',
+    windows: [],
+    planType: null,
+    planEndMs: null,
+    observedAtMs: null,
+    checkedAtMs: null,
+    sharedCredentials: null,
+    providerStatus: 'unavailable',
+    error: message,
+    errorStatus: status,
+    failedAtMs: Date.now(),
+    ...buildQuotaCredentialIdentity(file),
+  }),
+  scopeState: scopeCredentialQuotaState,
+};

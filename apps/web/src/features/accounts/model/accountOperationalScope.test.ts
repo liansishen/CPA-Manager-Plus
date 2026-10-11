@@ -6,6 +6,7 @@ import { buildAccountOperationalItemsByRowKey } from './accountOperationalScope'
 const emptyStores = () => ({
   antigravityQuota: {},
   claudeQuota: {},
+  clinePassQuota: {},
   codexQuota: {},
   kimiQuota: {},
   devinQuota: {},

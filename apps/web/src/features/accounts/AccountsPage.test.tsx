@@ -563,6 +563,7 @@ const { mocks } = vi.hoisted(() => {
       quotaState: {
         antigravityQuota: {},
         claudeQuota: {},
+        clinePassQuota: {},
         codexQuota: {},
         devinQuota: {},
         kimiQuota: {},
@@ -570,6 +571,7 @@ const { mocks } = vi.hoisted(() => {
         xaiQuota: {},
         setAntigravityQuota: vi.fn(),
         setClaudeQuota: vi.fn(),
+        setClinePassQuota: vi.fn(),
         setCodexQuota: vi.fn(),
         setDevinQuota: vi.fn(),
         setKimiQuota: vi.fn(),
@@ -967,6 +969,7 @@ vi.mock('@/stores', () => ({
     selector: (state: {
       antigravityQuota: Record<string, never>;
       claudeQuota: Record<string, never>;
+      clinePassQuota: Record<string, never>;
       codexQuota: Record<string, never>;
       devinQuota: Record<string, never>;
       kimiQuota: Record<string, never>;
@@ -974,6 +977,7 @@ vi.mock('@/stores', () => ({
       xaiQuota: Record<string, never>;
       setAntigravityQuota: () => void;
       setClaudeQuota: () => void;
+      setClinePassQuota: () => void;
       setCodexQuota: () => void;
       setDevinQuota: () => void;
       setKimiQuota: () => void;
@@ -1441,6 +1445,7 @@ describe('AccountsPage replacement flows', () => {
     mocks.listAccountActionCandidates.mockResolvedValue({ items: [], pendingCount: 0 });
     mocks.quotaState.antigravityQuota = {};
     mocks.quotaState.claudeQuota = {};
+    mocks.quotaState.clinePassQuota = {};
     mocks.quotaState.codexQuota = {};
     mocks.quotaState.devinQuota = {};
     mocks.quotaState.kimiQuota = {};
@@ -1449,6 +1454,7 @@ describe('AccountsPage replacement flows', () => {
     mocks.quotaDisplayWindowsOverride = null;
     mocks.quotaState.setAntigravityQuota.mockReset();
     mocks.quotaState.setClaudeQuota.mockReset();
+    mocks.quotaState.setClinePassQuota.mockReset();
     mocks.quotaState.setCodexQuota.mockReset();
     mocks.quotaState.setDevinQuota.mockReset();
     mocks.quotaState.setKimiQuota.mockReset();

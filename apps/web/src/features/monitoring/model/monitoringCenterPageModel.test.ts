@@ -231,6 +231,7 @@ const buildEntryFromMockedProviderFetch = async (
 const emptyQuotaStores = (): MonitoringQuotaStores => ({
   antigravityQuota: {},
   claudeQuota: {},
+  clinePassQuota: {},
   codexQuota: {},
   devinQuota: {},
   kimiQuota: {},

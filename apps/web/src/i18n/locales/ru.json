@@ -2170,6 +2170,7 @@
     "filter_kimi": "Kimi",
     "filter_aistudio": "AIStudio",
     "filter_claude": "Claude",
+    "filter_cline-pass": "Cline Pass",
     "filter_codex": "Codex",
     "filter_antigravity": "Antigravity",
     "filter_xai": "xAI",
@@ -2301,6 +2302,23 @@
     "load_failed": "Не удалось получить подписку: {{message}}",
     "missing_auth_index": "В файле авторизации отсутствует auth_index",
     "empty_data": "Данные подписки отсутствуют"
+  },
+  "cline_pass_quota": {
+    "title": "Квота Cline Pass",
+    "five_hour": "Лимит за 5 часов",
+    "weekly": "Недельный лимит",
+    "monthly": "Месячный лимит",
+    "estimated_total": "Оценка общей суммы ${{amount}}",
+    "estimated_remaining": "Оценка остатка ${{amount}}",
+    "estimate_notice": "Суммы в долларах оценены плагином",
+    "preliminary": "Предварительная оценка",
+    "historical": "Историческая оценка",
+    "shared_credentials": "Общая квота для {{count}} учётных данных",
+    "missing_identity": "Не удалось определить учётные данные Cline Pass",
+    "disabled": "Учётные данные Cline Pass отключены",
+    "request_failed": "Не удалось получить квоту Cline Pass",
+    "invalid_response": "Некорректный ответ квоты Cline Pass",
+    "empty": "Нет данных о квоте Cline Pass"
   },
   "claude_quota": {
     "title": "Квота Claude",

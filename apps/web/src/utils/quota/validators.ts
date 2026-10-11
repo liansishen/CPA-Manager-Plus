@@ -76,3 +76,7 @@ export function isDisabledAuthFile(file: AuthFileItem): boolean {
   }
   return false;
 }
+
+export function isClinePassFile(file: AuthFileItem): boolean {
+  return resolveAuthProvider(file) === 'cline-pass';
+}

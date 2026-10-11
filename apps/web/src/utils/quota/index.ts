@@ -15,3 +15,5 @@ export * from './providerRequests';
 export * from './customQuota';
 export * from './devinQuota';
 export * from './metaQuota';
+export * from './clinePassQuota';
+export * from './clinePassDisplay';
