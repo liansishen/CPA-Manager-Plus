@@ -1237,7 +1237,7 @@ func TestUsageCacheAccountingSemanticsRevision18_5_AppliedMigrationNotResetMidwa
 	if state.Status != StatusClearing && state.Status != StatusApplying {
 		t.Fatalf("state.Status = %q, want applying or clearing", state.Status)
 	}
-	// revision 暂未更新为 2
+	// revision 暂未更新为 3
 	var rev sql.NullString
 	_ = db.QueryRow(`select value from settings where key = ?`, UsageCacheAccountingSemanticsRevisionKey).Scan(&rev)
 	if rev.Valid && rev.String == "3" {
@@ -1440,7 +1440,7 @@ func TestUsageCacheAccountingSemanticsRevision18_8_HistoricalDevinPredicates(t *
 			// 插入该历史 Devin event
 			insertAccountingEvent(t, db, tt.fixture)
 
-			// 此时 revision 尚未设为 2
+			// 此时 revision 尚未设为 3
 			if _, err := db.Exec(`delete from settings where key = ?`, UsageCacheAccountingSemanticsRevisionKey); err != nil {
 				t.Fatalf("clear revision: %v", err)
 			}
@@ -1469,39 +1469,254 @@ func TestUsageCacheAccountingSemanticsRevision18_8_HistoricalDevinPredicates(t *
 	}
 }
 
-func TestUsageCacheAccountingSemanticsRevisionRescansBreakdownIncludedRows(t *testing.T) {
+func TestUsageCacheAccountingSemanticsRevision3CanonicalV2Unknown(t *testing.T) {
+	tests := []struct {
+		name           string
+		fixture        accountingFixture
+		wantMode       string
+		wantUncached   int64
+		wantTotalInput int64
+	}{
+		{
+			name: "issue 941 subset input",
+			fixture: accountingFixture{
+				Hash:             "issue-941",
+				Provider:         "workbuddy",
+				Executor:         "executorAdapter",
+				Model:            "Deepseek-V4.1-Flash",
+				Input:            233705,
+				Output:           1148,
+				Reasoning:        458,
+				Cached:           232576,
+				CacheRead:        232576,
+				StoredMode:       "separate_from_input",
+				StoredUncached:   233705,
+				StoredTotalInput: 466281,
+				StoredRead:       232576,
+				StoredCreation:   0,
+				Total:            234853,
+				RawJSON: `{
+					"tokens":{"input_tokens":233705,"output_tokens":1148,"reasoning_tokens":458,"cached_tokens":232576,"cache_read_tokens":232576,"cache_creation_tokens":0,"total_tokens":234853},
+					"accounting_version":2,
+					"token_breakdown":{
+						"schema_version":2,
+						"quality":"complete",
+						"total_tokens":234853,
+						"input":{"total_tokens":233705,"uncached_tokens":1129,"cache_read_tokens":232576,"cache_write_tokens":0},
+						"output":{"total_tokens":1148,"non_reasoning_tokens":690,"reasoning_tokens":458},
+						"unclassified_tokens":0
+					}
+				}`,
+			},
+			wantMode:       "included_in_input",
+			wantUncached:   1129,
+			wantTotalInput: 233705,
+		},
+		{
+			name: "read included creation separate",
+			fixture: accountingFixture{
+				Hash:             "canonical-mixed",
+				Provider:         "unknown-provider",
+				Executor:         "executorAdapter",
+				Model:            "custom-model",
+				Input:            120,
+				Output:           10,
+				Cached:           25,
+				CacheRead:        20,
+				CacheCreation:    5,
+				StoredMode:       "separate_from_input",
+				StoredUncached:   120,
+				StoredTotalInput: 145,
+				StoredRead:       20,
+				StoredCreation:   5,
+				Total:            135,
+				RawJSON: `{
+					"tokens":{"input_tokens":120,"output_tokens":10,"cached_tokens":25,"cache_read_tokens":20,"cache_creation_tokens":5,"total_tokens":135},
+					"accounting_version":2,
+					"token_breakdown":{
+						"schema_version":2,
+						"quality":"complete",
+						"total_tokens":135,
+						"input":{"total_tokens":125,"uncached_tokens":100,"cache_read_tokens":20,"cache_write_tokens":5},
+						"output":{"total_tokens":10,"non_reasoning_tokens":10,"reasoning_tokens":0},
+						"unclassified_tokens":0
+					}
+				}`,
+			},
+			wantMode:       "read_included_creation_separate",
+			wantUncached:   100,
+			wantTotalInput: 125,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := openMigrationTestDB(t)
+			markMigrationCompleted(t, db)
+			insertAccountingEvent(t, db, tt.fixture)
+			if _, err := db.Exec(`insert into settings(key, value, updated_at_ms) values (?, '2', 1)
+				on conflict(key) do update set value = excluded.value, updated_at_ms = excluded.updated_at_ms`,
+				UsageCacheAccountingSemanticsRevisionKey); err != nil {
+				t.Fatalf("set revision 2: %v", err)
+			}
+
+			repo := New(db)
+			state, err := repo.DiscoverUsageCacheAccounting(context.Background())
+			if err != nil {
+				t.Fatalf("discover revision 3 migration: %v", err)
+			}
+			if state.Status != StatusPending || state.TargetEventID != 1 {
+				t.Fatalf("discovered state = %#v, want pending target=1", state)
+			}
+
+			runUsageCacheAccountingToCompletion(t, repo, 10)
+			assertAccounting(
+				t,
+				db,
+				tt.fixture.Hash,
+				tt.wantMode,
+				tt.wantUncached,
+				tt.wantTotalInput,
+				tt.fixture.CacheRead,
+				tt.fixture.CacheCreation,
+				tt.fixture.Total,
+			)
+			assertRevision(t, db, "3")
+		})
+	}
+}
+
+func TestUsageCacheAccountingSemanticsRevision3SkipsCanonicalSeparateRows(t *testing.T) {
 	db := openMigrationTestDB(t)
 	markMigrationCompleted(t, db)
-
-	// The payload states that the reported input already contains the cache buckets
-	// while the stored mode claims otherwise, so the pass must run again.
 	insertAccountingEvent(t, db, accountingFixture{
-		Hash:             "cline-pass-included",
-		Provider:         "cline-pass",
+		Hash:             "canonical-independent",
+		Provider:         "unknown-provider",
 		Executor:         "executorAdapter",
-		Model:            "deepseek-flash",
-		Input:            538732,
-		CacheRead:        535808,
-		Cached:           535808,
+		Model:            "custom-model",
+		Input:            20,
+		Output:           10,
+		Cached:           80,
+		CacheRead:        80,
 		StoredMode:       "separate_from_input",
-		StoredUncached:   538732,
-		StoredTotalInput: 1074540,
-		StoredRead:       535808,
-		Total:            540274,
-		RawJSON:          `{"tokens":{"input_tokens":538732,"output_tokens":1542,"cached_tokens":535808,"cache_read_tokens":535808,"total_tokens":540274},"token_breakdown":{"schema_version":2,"quality":"complete","input":{"total_tokens":538732,"uncached_tokens":2924,"cache_read_tokens":535808,"cache_write_tokens":0}}}`,
+		StoredUncached:   20,
+		StoredTotalInput: 100,
+		StoredRead:       80,
+		StoredCreation:   0,
+		Total:            110,
+		RawJSON: `{
+			"tokens":{"input_tokens":20,"output_tokens":10,"cached_tokens":80,"cache_read_tokens":80,"cache_creation_tokens":0,"total_tokens":110},
+			"accounting_version":2,
+			"token_breakdown":{
+				"schema_version":2,
+				"quality":"complete",
+				"total_tokens":110,
+				"input":{"total_tokens":100,"uncached_tokens":20,"cache_read_tokens":80,"cache_write_tokens":0},
+				"output":{"total_tokens":10,"non_reasoning_tokens":10,"reasoning_tokens":0},
+				"unclassified_tokens":0
+			}
+		}`,
 	})
+	if _, err := db.Exec(`insert into settings(key, value, updated_at_ms) values (?, '2', 1)
+		on conflict(key) do update set value = excluded.value, updated_at_ms = excluded.updated_at_ms`,
+		UsageCacheAccountingSemanticsRevisionKey); err != nil {
+		t.Fatalf("set revision 2: %v", err)
+	}
+
+	state, err := New(db).DiscoverUsageCacheAccounting(context.Background())
+	if err != nil {
+		t.Fatalf("discover revision 3 without affected row: %v", err)
+	}
+	if state.Status != StatusCompleted {
+		t.Fatalf("state.Status = %q, want completed without rediscovery", state.Status)
+	}
+	assertAccounting(t, db, "canonical-independent", "separate_from_input", 20, 100, 80, 0, 110)
+	assertRevision(t, db, "3")
+}
+
+func TestUsageCacheAccountingSemanticsRevision3MalformedRawJSONFailsClosed(t *testing.T) {
+	db := openMigrationTestDB(t)
+	markMigrationCompleted(t, db)
+	insertAccountingEvent(t, db, accountingFixture{
+		Hash:             "malformed-canonical-json",
+		Provider:         "unknown-provider",
+		Executor:         "executorAdapter",
+		Model:            "custom-model",
+		Input:            100,
+		Cached:           80,
+		CacheRead:        80,
+		StoredMode:       "separate_from_input",
+		StoredUncached:   100,
+		StoredTotalInput: 180,
+		StoredRead:       80,
+		Total:            110,
+		RawJSON:          "{",
+	})
+	if _, err := db.Exec(`insert into settings(key, value, updated_at_ms) values (?, '2', 1)
+		on conflict(key) do update set value = excluded.value, updated_at_ms = excluded.updated_at_ms`,
+		UsageCacheAccountingSemanticsRevisionKey); err != nil {
+		t.Fatalf("set revision 2: %v", err)
+	}
+
+	state, err := New(db).DiscoverUsageCacheAccounting(context.Background())
+	if err != nil {
+		t.Fatalf("discover revision 3 with malformed raw JSON: %v", err)
+	}
+	if state.Status != StatusCompleted {
+		t.Fatalf("state.Status = %q, want completed without rediscovery", state.Status)
+	}
+	assertAccounting(t, db, "malformed-canonical-json", "separate_from_input", 100, 180, 80, 0, 110)
+	assertRevision(t, db, "3")
+}
+
+func TestUsageCacheAccountingSemanticsRevision3RejectsCanonicalTokenMismatch(t *testing.T) {
+	db := openMigrationTestDB(t)
+	markMigrationCompleted(t, db)
+	insertAccountingEvent(t, db, accountingFixture{
+		Hash:             "canonical-token-mismatch",
+		Provider:         "workbuddy",
+		Executor:         "executorAdapter",
+		Model:            "Deepseek-V4.1-Flash",
+		Input:            233705,
+		Output:           1148,
+		Reasoning:        458,
+		Cached:           232576,
+		CacheRead:        232576,
+		StoredMode:       "separate_from_input",
+		StoredUncached:   233705,
+		StoredTotalInput: 466281,
+		StoredRead:       232576,
+		StoredCreation:   0,
+		Total:            234854,
+		RawJSON: `{
+			"tokens":{"input_tokens":233705,"output_tokens":1148,"reasoning_tokens":458,"cached_tokens":232576,"cache_read_tokens":232576,"cache_creation_tokens":0,"total_tokens":234854},
+			"accounting_version":2,
+			"token_breakdown":{
+				"schema_version":2,
+				"quality":"complete",
+				"total_tokens":234853,
+				"input":{"total_tokens":233705,"uncached_tokens":1129,"cache_read_tokens":232576,"cache_write_tokens":0},
+				"output":{"total_tokens":1148,"non_reasoning_tokens":690,"reasoning_tokens":458},
+				"unclassified_tokens":0
+			}
+		}`,
+	})
+	if _, err := db.Exec(`insert into settings(key, value, updated_at_ms) values (?, '2', 1)
+		on conflict(key) do update set value = excluded.value, updated_at_ms = excluded.updated_at_ms`,
+		UsageCacheAccountingSemanticsRevisionKey); err != nil {
+		t.Fatalf("set revision 2: %v", err)
+	}
 
 	repo := New(db)
 	state, err := repo.DiscoverUsageCacheAccounting(context.Background())
 	if err != nil {
-		t.Fatalf("discover migration: %v", err)
+		t.Fatalf("discover revision 3 migration: %v", err)
 	}
-	if state.Status != StatusPending {
-		t.Fatalf("state.Status = %q, want pending after a breakdown-triggered rescan", state.Status)
+	if state.Status != StatusPending || state.TargetEventID != 1 {
+		t.Fatalf("discovered state = %#v, want pending target=1", state)
 	}
-
 	runUsageCacheAccountingToCompletion(t, repo, 10)
-	assertAccounting(t, db, "cline-pass-included", "included_in_input", 2924, 538732, 535808, 0, 540274)
+	assertAccounting(t, db, "canonical-token-mismatch", "separate_from_input", 233705, 466281, 232576, 0, 234854)
 	assertRevision(t, db, "3")
 }
 

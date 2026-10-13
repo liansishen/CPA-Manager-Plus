@@ -218,27 +218,6 @@ type CacheInputContext struct {
 	ResolvedModel    string
 	RequestedModel   string
 	DisplayModel     string
-	// Breakdown mirrors the canonical non-overlapping input breakdown published
-	// with the payload (token_breakdown.input). It states whether the reported
-	// input already contains the cache buckets, so the mode no longer has to be
-	// guessed from provider or executor names.
-	BreakdownInputTotal       int64
-	BreakdownUncachedTokens   int64
-	BreakdownCacheReadTokens  int64
-	BreakdownCacheWriteTokens int64
-	HasBreakdownInput         bool
-}
-
-// WithBreakdown copies the canonical input breakdown from raw cache hints into the
-// context so the accounting mode can follow the published contract instead of
-// being guessed from provider or executor names.
-func (c CacheInputContext) WithBreakdown(hints RawCacheAccountingHints) CacheInputContext {
-	c.BreakdownInputTotal = hints.BreakdownInputTotal
-	c.BreakdownUncachedTokens = hints.BreakdownUncachedTokens
-	c.BreakdownCacheReadTokens = hints.BreakdownCacheReadTokens
-	c.BreakdownCacheWriteTokens = hints.BreakdownCacheWriteTokens
-	c.HasBreakdownInput = hints.HasBreakdownInput
-	return c
 }
 
 // EffectiveServiceTier returns the tier used for billing and aggregation.
@@ -274,27 +253,35 @@ type RawCacheAccountingHints struct {
 	ExplicitTotal    int64
 	HasExplicitTotal bool
 	ValidPayload     bool
-	// Breakdown* mirrors token_breakdown.input from the raw payload.
-	BreakdownInputTotal       int64
-	BreakdownUncachedTokens   int64
-	BreakdownCacheReadTokens  int64
-	BreakdownCacheWriteTokens int64
-	HasBreakdownInput         bool
+}
+
+const (
+	canonicalTokenAccountingSchemaVersion int64 = 2
+	maxCanonicalJSONInteger               int64 = (1 << 53) - 1
+	canonicalTokenAccountingQualityComplete      = "complete"
+)
+
+type canonicalTokenInputBreakdown struct {
+	TotalTokens      int64
+	UncachedTokens   int64
+	CacheReadTokens  int64
+	CacheWriteTokens int64
+}
+
+type canonicalTokenOutputBreakdown struct {
+	TotalTokens        int64
+	NonReasoningTokens int64
+	ReasoningTokens    int64
+}
+
+type canonicalTokenBreakdown struct {
+	TotalTokens int64
+	Input       canonicalTokenInputBreakdown
+	Output      canonicalTokenOutputBreakdown
 }
 
 func NormalizeCacheAccounting(context CacheInputContext, inputTokens, cachedTokens, cacheTokens, cacheReadTokens, cacheCreationTokens int64) CacheAccounting {
-	mode := normalizeCacheInputMode(context.ExplicitMode)
-	if !isKnownCacheInputMode(mode) {
-		mode = ""
-	}
-	if mode == "" {
-		if derived, ok := breakdownCacheInputMode(context, inputTokens); ok {
-			mode = derived
-		}
-	}
-	if mode == "" {
-		mode = InferCacheInputMode(context, cacheReadTokens, cacheCreationTokens)
-	}
+	mode := InferCacheInputMode(context, cacheReadTokens, cacheCreationTokens)
 	input := maxInt64(inputTokens, 0)
 	cacheRead := CompatibleCachedTokens(cachedTokens, cacheTokens, cacheReadTokens, cacheCreationTokens) + maxInt64(cacheReadTokens, 0)
 	cacheCreation := maxInt64(cacheCreationTokens, 0)
@@ -317,12 +304,203 @@ func NormalizeCacheAccounting(context CacheInputContext, inputTokens, cachedToke
 	return accounting
 }
 
+func NormalizeCacheAccountingWithRawJSON(
+	context CacheInputContext,
+	raw string,
+	inputTokens, outputTokens, reasoningTokens, totalTokens int64,
+	cachedTokens, cacheTokens, cacheReadTokens, cacheCreationTokens int64,
+) CacheAccounting {
+	accounting := NormalizeCacheAccounting(
+		context,
+		inputTokens,
+		cachedTokens,
+		cacheTokens,
+		cacheReadTokens,
+		cacheCreationTokens,
+	)
+	if _, known := classifyCacheInputMode(context); known {
+		return accounting
+	}
+	breakdown, ok := canonicalTokenBreakdownFromJSON(raw)
+	if !ok {
+		return accounting
+	}
+	canonical, ok := canonicalCacheAccounting(
+		breakdown,
+		inputTokens,
+		outputTokens,
+		reasoningTokens,
+		totalTokens,
+		cachedTokens,
+		cacheTokens,
+		cacheReadTokens,
+		cacheCreationTokens,
+	)
+	if !ok {
+		return accounting
+	}
+	return canonical
+}
+
+func canonicalTokenBreakdownFromJSON(raw string) (canonicalTokenBreakdown, bool) {
+	if strings.TrimSpace(raw) == "" || !json.Valid([]byte(raw)) {
+		return canonicalTokenBreakdown{}, false
+	}
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.UseNumber()
+	var payload any
+	if err := decoder.Decode(&payload); err != nil {
+		return canonicalTokenBreakdown{}, false
+	}
+	record, ok := payload.(map[string]any)
+	if !ok {
+		return canonicalTokenBreakdown{}, false
+	}
+	accountingVersion, ok := canonicalJSONInt(record, "accounting_version")
+	if !ok || accountingVersion != canonicalTokenAccountingSchemaVersion {
+		return canonicalTokenBreakdown{}, false
+	}
+	breakdownRecord, ok := record["token_breakdown"].(map[string]any)
+	if !ok {
+		return canonicalTokenBreakdown{}, false
+	}
+	schemaVersion, ok := canonicalJSONInt(breakdownRecord, "schema_version")
+	if !ok || schemaVersion != canonicalTokenAccountingSchemaVersion {
+		return canonicalTokenBreakdown{}, false
+	}
+	quality, ok := breakdownRecord["quality"].(string)
+	if !ok || strings.TrimSpace(quality) != canonicalTokenAccountingQualityComplete {
+		return canonicalTokenBreakdown{}, false
+	}
+	unclassified, ok := canonicalJSONInt(breakdownRecord, "unclassified_tokens")
+	if !ok || unclassified != 0 {
+		return canonicalTokenBreakdown{}, false
+	}
+	total, ok := canonicalJSONInt(breakdownRecord, "total_tokens")
+	if !ok {
+		return canonicalTokenBreakdown{}, false
+	}
+	inputRecord, ok := breakdownRecord["input"].(map[string]any)
+	if !ok {
+		return canonicalTokenBreakdown{}, false
+	}
+	outputRecord, ok := breakdownRecord["output"].(map[string]any)
+	if !ok {
+		return canonicalTokenBreakdown{}, false
+	}
+
+	inputTotal, okInputTotal := canonicalJSONInt(inputRecord, "total_tokens")
+	uncached, okUncached := canonicalJSONInt(inputRecord, "uncached_tokens")
+	cacheRead, okCacheRead := canonicalJSONInt(inputRecord, "cache_read_tokens")
+	cacheWrite, okCacheWrite := canonicalJSONInt(inputRecord, "cache_write_tokens")
+	outputTotal, okOutputTotal := canonicalJSONInt(outputRecord, "total_tokens")
+	nonReasoning, okNonReasoning := canonicalJSONInt(outputRecord, "non_reasoning_tokens")
+	reasoning, okReasoning := canonicalJSONInt(outputRecord, "reasoning_tokens")
+	if !okInputTotal || !okUncached || !okCacheRead || !okCacheWrite ||
+		!okOutputTotal || !okNonReasoning || !okReasoning {
+		return canonicalTokenBreakdown{}, false
+	}
+	if inputTotal != uncached+cacheRead+cacheWrite ||
+		outputTotal != nonReasoning+reasoning ||
+		total != inputTotal+outputTotal {
+		return canonicalTokenBreakdown{}, false
+	}
+	return canonicalTokenBreakdown{
+		TotalTokens: total,
+		Input: canonicalTokenInputBreakdown{
+			TotalTokens:      inputTotal,
+			UncachedTokens:   uncached,
+			CacheReadTokens:  cacheRead,
+			CacheWriteTokens: cacheWrite,
+		},
+		Output: canonicalTokenOutputBreakdown{
+			TotalTokens:        outputTotal,
+			NonReasoningTokens: nonReasoning,
+			ReasoningTokens:    reasoning,
+		},
+	}, true
+}
+
+func canonicalJSONInt(record map[string]any, key string) (int64, bool) {
+	value, ok := record[key]
+	if !ok {
+		return 0, false
+	}
+	number, ok := value.(json.Number)
+	if !ok {
+		return 0, false
+	}
+	parsed, err := number.Int64()
+	if err != nil || parsed < 0 || parsed > maxCanonicalJSONInteger {
+		return 0, false
+	}
+	return parsed, true
+}
+
+func canonicalCacheAccounting(
+	breakdown canonicalTokenBreakdown,
+	inputTokens, outputTokens, reasoningTokens, totalTokens int64,
+	cachedTokens, cacheTokens, cacheReadTokens, cacheCreationTokens int64,
+) (CacheAccounting, bool) {
+	if inputTokens < 0 || outputTokens < 0 || reasoningTokens < 0 || totalTokens < 0 ||
+		cachedTokens < 0 || cacheTokens < 0 || cacheReadTokens < 0 || cacheCreationTokens < 0 {
+		return CacheAccounting{}, false
+	}
+	if totalTokens != breakdown.TotalTokens ||
+		reasoningTokens != breakdown.Output.ReasoningTokens ||
+		(outputTokens != breakdown.Output.TotalTokens &&
+			outputTokens != breakdown.Output.NonReasoningTokens) {
+		return CacheAccounting{}, false
+	}
+	if cacheReadTokens != breakdown.Input.CacheReadTokens ||
+		cacheCreationTokens != breakdown.Input.CacheWriteTokens {
+		return CacheAccounting{}, false
+	}
+	if CompatibleCachedTokens(cachedTokens, cacheTokens, cacheReadTokens, cacheCreationTokens) != 0 {
+		return CacheAccounting{}, false
+	}
+	if breakdown.Input.CacheReadTokens == 0 && breakdown.Input.CacheWriteTokens == 0 {
+		return CacheAccounting{}, false
+	}
+
+	mode := ""
+	switch {
+	case inputTokens == breakdown.Input.TotalTokens:
+		mode = CacheInputModeIncluded
+	case breakdown.Input.CacheReadTokens > 0 &&
+		breakdown.Input.CacheWriteTokens > 0 &&
+		inputTokens == breakdown.Input.UncachedTokens+breakdown.Input.CacheReadTokens:
+		mode = CacheInputModeReadIncludedCreationSeparate
+	case inputTokens == breakdown.Input.UncachedTokens:
+		mode = CacheInputModeSeparate
+	default:
+		return CacheAccounting{}, false
+	}
+	accounting := NormalizeCacheAccounting(
+		CacheInputContext{ExplicitMode: mode},
+		inputTokens,
+		cachedTokens,
+		cacheTokens,
+		cacheReadTokens,
+		cacheCreationTokens,
+	)
+	if accounting.UncachedInputTokens != breakdown.Input.UncachedTokens ||
+		accounting.TotalInputTokens != breakdown.Input.TotalTokens ||
+		accounting.CacheReadTokens != breakdown.Input.CacheReadTokens ||
+		accounting.CacheCreationTokens != breakdown.Input.CacheWriteTokens {
+		return CacheAccounting{}, false
+	}
+	return accounting, true
+}
+
 func ValidateArchiveDerivedFields(event Event) error {
 	if !event.PreserveArchiveDerivedFields {
 		return nil
 	}
 	mode := normalizeCacheInputMode(event.CacheInputMode)
-	if mode != CacheInputModeIncluded && mode != CacheInputModeSeparate {
+	if mode != CacheInputModeIncluded &&
+		mode != CacheInputModeSeparate &&
+		mode != CacheInputModeReadIncludedCreationSeparate {
 		return fmt.Errorf("archive cache input mode %q is invalid", event.CacheInputMode)
 	}
 	for _, field := range []struct {
@@ -343,27 +521,34 @@ func ValidateArchiveDerivedFields(event Event) error {
 }
 
 func InferCacheInputMode(context CacheInputContext, cacheReadTokens, cacheCreationTokens int64) string {
-	mode := normalizeCacheInputMode(context.ExplicitMode)
-	if mode == CacheInputModeIncluded || mode == CacheInputModeSeparate || mode == CacheInputModeReadIncludedCreationSeparate {
+	if mode, ok := classifyCacheInputMode(context); ok {
 		return mode
-	}
-	if classified, ok := classifyExecutorCacheInputMode(context.ExecutorType); ok {
-		return classified
-	}
-	for _, provider := range []string{context.Provider, context.ProviderSnapshot} {
-		if classified, ok := classifyProviderCacheInputMode(provider); ok {
-			return classified
-		}
-	}
-	for _, model := range []string{context.ResolvedModel, context.RequestedModel, context.DisplayModel} {
-		if classified, ok := classifyModelCacheInputMode(model); ok {
-			return classified
-		}
 	}
 	if cacheReadTokens > 0 || cacheCreationTokens > 0 {
 		return CacheInputModeSeparate
 	}
 	return CacheInputModeIncluded
+}
+
+func classifyCacheInputMode(context CacheInputContext) (string, bool) {
+	mode := normalizeCacheInputMode(context.ExplicitMode)
+	if mode == CacheInputModeIncluded || mode == CacheInputModeSeparate || mode == CacheInputModeReadIncludedCreationSeparate {
+		return mode, true
+	}
+	if classified, ok := classifyExecutorCacheInputMode(context.ExecutorType); ok {
+		return classified, true
+	}
+	for _, provider := range []string{context.Provider, context.ProviderSnapshot} {
+		if classified, ok := classifyProviderCacheInputMode(provider); ok {
+			return classified, true
+		}
+	}
+	for _, model := range []string{context.ResolvedModel, context.RequestedModel, context.DisplayModel} {
+		if classified, ok := classifyModelCacheInputMode(model); ok {
+			return classified, true
+		}
+	}
+	return "", false
 }
 
 func normalizeCacheInputMode(mode string) string {
@@ -437,47 +622,6 @@ func classifyModelCacheInputMode(model string) (string, bool) {
 	return "", false
 }
 
-// isKnownCacheInputMode reports whether the mode is one of the accounting
-// conventions understood by this package.
-func isKnownCacheInputMode(mode string) bool {
-	switch mode {
-	case CacheInputModeIncluded, CacheInputModeSeparate, CacheInputModeReadIncludedCreationSeparate:
-		return true
-	}
-	return false
-}
-
-// breakdownCacheInputMode derives the accounting convention from the canonical
-// input breakdown published with the payload. The gateway normalizes every
-// provider's cache convention into that non-overlapping contract, so the raw
-// input total can be matched against the breakdown to tell whether it already
-// contains the cache buckets. An unrecognized shape yields no conclusion and
-// falls back to the name-based inference.
-func breakdownCacheInputMode(context CacheInputContext, inputTokens int64) (string, bool) {
-	if !context.HasBreakdownInput || inputTokens <= 0 || context.BreakdownInputTotal <= 0 {
-		return "", false
-	}
-	total := context.BreakdownInputTotal
-	uncached := context.BreakdownUncachedTokens
-	read := context.BreakdownCacheReadTokens
-	write := context.BreakdownCacheWriteTokens
-	if uncached < 0 || read < 0 || write < 0 || uncached+read+write != total {
-		return "", false
-	}
-	if read+write == 0 {
-		return "", false
-	}
-	switch {
-	case total == inputTokens && uncached == inputTokens-read-write:
-		return CacheInputModeIncluded, true
-	case uncached == inputTokens && total == inputTokens+read+write:
-		return CacheInputModeSeparate, true
-	case write > 0 && uncached == inputTokens-read && total == inputTokens+write:
-		return CacheInputModeReadIncludedCreationSeparate, true
-	}
-	return "", false
-}
-
 func RawCacheAccountingHintsFromJSON(raw string) RawCacheAccountingHints {
 	return rawCacheAccountingHintsFromJSON(raw, 0)
 }
@@ -497,7 +641,11 @@ func rawCacheAccountingHintsFromJSON(raw string, depth int) RawCacheAccountingHi
 	if detail, ok := record["detail"].(map[string]any); ok {
 		record = detail
 	}
-	hints := cacheAccountingHintsFromRecord(record)
+	hints := RawCacheAccountingHints{ExplicitMode: cacheInputModeFromRecord(record), ValidPayload: true}
+	if total, ok := explicitPositiveTotalFromRecord(record); ok {
+		hints.ExplicitTotal = total
+		hints.HasExplicitTotal = true
+	}
 	if nestedRaw := readString(record, "raw_json", "rawJson"); nestedRaw != "" {
 		nested := rawCacheAccountingHintsFromJSON(nestedRaw, depth+1)
 		if hints.ExplicitMode == "" {
@@ -507,61 +655,8 @@ func rawCacheAccountingHintsFromJSON(raw string, depth int) RawCacheAccountingHi
 			hints.ExplicitTotal = nested.ExplicitTotal
 			hints.HasExplicitTotal = true
 		}
-		if !hints.HasBreakdownInput && nested.HasBreakdownInput {
-			hints.BreakdownInputTotal = nested.BreakdownInputTotal
-			hints.BreakdownUncachedTokens = nested.BreakdownUncachedTokens
-			hints.BreakdownCacheReadTokens = nested.BreakdownCacheReadTokens
-			hints.BreakdownCacheWriteTokens = nested.BreakdownCacheWriteTokens
-			hints.HasBreakdownInput = true
-		}
 	}
 	return hints
-}
-
-// cacheAccountingHintsFromRecord reads the explicit mode, the explicit total, and
-// the canonical input breakdown from a decoded usage payload.
-func cacheAccountingHintsFromRecord(record map[string]any) RawCacheAccountingHints {
-	hints := RawCacheAccountingHints{ExplicitMode: cacheInputModeFromRecord(record), ValidPayload: true}
-	if total, ok := explicitPositiveTotalFromRecord(record); ok {
-		hints.ExplicitTotal = total
-		hints.HasExplicitTotal = true
-	}
-	if breakdown, ok := record["token_breakdown"].(map[string]any); ok {
-		if input, ok := breakdown["input"].(map[string]any); ok {
-			total, okTotal := positiveIntValue(input["total_tokens"])
-			uncached, okUncached := nonNegativeIntValue(input["uncached_tokens"])
-			read, okRead := nonNegativeIntValue(input["cache_read_tokens"])
-			write, okWrite := nonNegativeIntValue(input["cache_write_tokens"])
-			if okTotal && okUncached && okRead && okWrite {
-				hints.BreakdownInputTotal = total
-				hints.BreakdownUncachedTokens = uncached
-				hints.BreakdownCacheReadTokens = read
-				hints.BreakdownCacheWriteTokens = write
-				hints.HasBreakdownInput = true
-			}
-		}
-	}
-	return hints
-}
-
-// nonNegativeIntValue reads an optional token counter where zero is meaningful,
-// unlike positiveIntValue.
-func nonNegativeIntValue(value any) (int64, bool) {
-	switch typed := value.(type) {
-	case float64:
-		return int64(typed), typed >= 0
-	case json.Number:
-		parsed, err := typed.Int64()
-		return parsed, err == nil && parsed >= 0
-	case string:
-		parsed, err := strconv.ParseInt(strings.TrimSpace(typed), 10, 64)
-		return parsed, err == nil && parsed >= 0
-	case int64:
-		return typed, typed >= 0
-	case int:
-		return int64(typed), typed >= 0
-	}
-	return 0, false
 }
 
 func cacheInputModeFromRecord(record map[string]any) string {
@@ -743,24 +838,29 @@ func NormalizeRaw(raw []byte) (Event, error) {
 	requestServiceTier := readString(record, "request_service_tier", "requestServiceTier", "service_tier", "serviceTier")
 	responseServiceTier := readString(record, "response_service_tier", "responseServiceTier")
 	authProviderSnapshot := readString(record, "auth_provider_snapshot", "authProviderSnapshot")
-	accountingHints := cacheAccountingHintsFromRecord(record)
 	usageContext := CacheInputContext{
-		ExplicitMode:              accountingHints.ExplicitMode,
-		ExecutorType:              executorType,
-		Provider:                  provider,
-		ProviderSnapshot:          authProviderSnapshot,
-		AuthType:                  authType,
-		ResolvedModel:             resolvedModel,
-		RequestedModel:            requestedModel,
-		DisplayModel:              model,
-		BreakdownInputTotal:       accountingHints.BreakdownInputTotal,
-		BreakdownUncachedTokens:   accountingHints.BreakdownUncachedTokens,
-		BreakdownCacheReadTokens:  accountingHints.BreakdownCacheReadTokens,
-		BreakdownCacheWriteTokens: accountingHints.BreakdownCacheWriteTokens,
-		HasBreakdownInput:         accountingHints.HasBreakdownInput,
+		ExplicitMode:     cacheInputModeFromRecord(record),
+		ExecutorType:     executorType,
+		Provider:         provider,
+		ProviderSnapshot: authProviderSnapshot,
+		AuthType:         authType,
+		ResolvedModel:    resolvedModel,
+		RequestedModel:   requestedModel,
+		DisplayModel:     model,
 	}
 	serviceTier := EffectiveServiceTier(usageContext, requestServiceTier, "", responseServiceTier)
-	cacheAccounting := NormalizeCacheAccounting(usageContext, inputTokens, cachedTokens, cacheTokens, cacheReadTokens, cacheCreationTokens)
+	cacheAccounting := NormalizeCacheAccountingWithRawJSON(
+		usageContext,
+		string(raw),
+		inputTokens,
+		outputTokens,
+		reasoningTokens,
+		totalTokens,
+		cachedTokens,
+		cacheTokens,
+		cacheReadTokens,
+		cacheCreationTokens,
+	)
 	if totalTokens <= 0 {
 		totalTokens = cacheAccounting.TotalInputTokens + maxInt64(outputTokens, 0) + maxInt64(reasoningTokens, 0)
 	}

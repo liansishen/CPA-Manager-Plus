@@ -444,11 +444,110 @@ func TestDevinRepositoryRoundTrip(t *testing.T) {
 	}
 }
 
-func TestCacheAccountingPrefersCanonicalBreakdown(t *testing.T) {
+func TestNormalizeRawUsesCanonicalV2BreakdownForIssue941(t *testing.T) {
+	event, err := NormalizeRaw([]byte(`{
+		"timestamp":"2026-10-12T00:00:00Z",
+		"provider":"workbuddy",
+		"executor_type":"executorAdapter",
+		"model":"Deepseek-V4.1-Flash",
+		"endpoint":"POST /v1/chat/completions",
+		"tokens":{
+			"input_tokens":233705,
+			"output_tokens":1148,
+			"reasoning_tokens":458,
+			"cached_tokens":232576,
+			"cache_read_tokens":232576,
+			"cache_creation_tokens":0,
+			"total_tokens":234853
+		},
+		"accounting_version":2,
+		"token_breakdown":{
+			"schema_version":2,
+			"quality":"complete",
+			"total_tokens":234853,
+			"input":{
+				"total_tokens":233705,
+				"uncached_tokens":1129,
+				"cache_read_tokens":232576,
+				"cache_write_tokens":0
+			},
+			"output":{
+				"total_tokens":1148,
+				"non_reasoning_tokens":690,
+				"reasoning_tokens":458
+			},
+			"unclassified_tokens":0
+		}
+	}`))
+	if err != nil {
+		t.Fatalf("normalize #941 fixture: %v", err)
+	}
+	if event.CacheInputMode != CacheInputModeIncluded {
+		t.Fatalf("cache input mode = %q, want %q", event.CacheInputMode, CacheInputModeIncluded)
+	}
+	if event.NormalizedUncachedInputTokens != 1129 ||
+		event.NormalizedTotalInputTokens != 233705 ||
+		event.NormalizedCacheReadTokens != 232576 ||
+		event.NormalizedCacheCreationTokens != 0 {
+		t.Fatalf("normalized #941 accounting = (%d, %d, %d, %d), want (1129, 233705, 232576, 0)",
+			event.NormalizedUncachedInputTokens,
+			event.NormalizedTotalInputTokens,
+			event.NormalizedCacheReadTokens,
+			event.NormalizedCacheCreationTokens,
+		)
+	}
+	if event.TotalTokens != 234853 {
+		t.Fatalf("total tokens = %d, want 234853", event.TotalTokens)
+	}
+	if IsLongContextInput(event.NormalizedTotalInputTokens) {
+		t.Fatalf("normalized input %d must stay below the long-context threshold", event.NormalizedTotalInputTokens)
+	}
+}
+
+func TestNormalizeCacheAccountingWithRawJSONRequiresCanonicalV2Proof(t *testing.T) {
+	subset := `{
+		"accounting_version":2,
+		"token_breakdown":{
+			"schema_version":2,
+			"quality":"complete",
+			"total_tokens":110,
+			"input":{"total_tokens":100,"uncached_tokens":20,"cache_read_tokens":80,"cache_write_tokens":0},
+			"output":{"total_tokens":10,"non_reasoning_tokens":10,"reasoning_tokens":0},
+			"unclassified_tokens":0
+		}
+	}`
+	independent := subset
+	mixed := `{
+		"accounting_version":2,
+		"token_breakdown":{
+			"schema_version":2,
+			"quality":"complete",
+			"total_tokens":135,
+			"input":{"total_tokens":125,"uncached_tokens":100,"cache_read_tokens":20,"cache_write_tokens":5},
+			"output":{"total_tokens":10,"non_reasoning_tokens":10,"reasoning_tokens":0},
+			"unclassified_tokens":0
+		}
+	}`
+	separateReasoning := `{
+		"accounting_version":2,
+		"token_breakdown":{
+			"schema_version":2,
+			"quality":"complete",
+			"total_tokens":110,
+			"input":{"total_tokens":100,"uncached_tokens":20,"cache_read_tokens":80,"cache_write_tokens":0},
+			"output":{"total_tokens":10,"non_reasoning_tokens":7,"reasoning_tokens":3},
+			"unclassified_tokens":0
+		}
+	}`
+
 	tests := []struct {
 		name         string
 		context      CacheInputContext
+		raw          string
 		input        int64
+		output       int64
+		reasoning    int64
+		total        int64
 		cached       int64
 		read         int64
 		creation     int64
@@ -457,136 +556,197 @@ func TestCacheAccountingPrefersCanonicalBreakdown(t *testing.T) {
 		wantTotal    int64
 	}{
 		{
-			name: "bridge payload whose input already contains cache reads",
-			context: CacheInputContext{
-				ExecutorType:              "executorAdapter",
-				Provider:                  "cline-pass",
-				DisplayModel:              "deepseek-flash",
-				BreakdownInputTotal:       538732,
-				BreakdownUncachedTokens:   2924,
-				BreakdownCacheReadTokens:  535808,
-				BreakdownCacheWriteTokens: 0,
-				HasBreakdownInput:         true,
-			},
-			input:        538732,
-			cached:       535808,
-			read:         535808,
+			name:         "unknown subset maps to included",
+			raw:          subset,
+			input:        100,
+			output:       10,
+			total:        110,
+			cached:       80,
+			read:         80,
 			wantMode:     CacheInputModeIncluded,
-			wantUncached: 2924,
-			wantTotal:    538732,
+			wantUncached: 20,
+			wantTotal:    100,
 		},
 		{
-			name: "independent payload keeps cache reads out of input",
-			context: CacheInputContext{
-				Provider:                  "anthropic-claude",
-				BreakdownInputTotal:       120,
-				BreakdownUncachedTokens:   100,
-				BreakdownCacheReadTokens:  20,
-				BreakdownCacheWriteTokens: 0,
-				HasBreakdownInput:         true,
-			},
-			input:        100,
-			read:         20,
+			name:         "unknown independent maps to separate",
+			raw:          independent,
+			input:        20,
+			output:       10,
+			total:        110,
+			cached:       80,
+			read:         80,
 			wantMode:     CacheInputModeSeparate,
-			wantUncached: 100,
-			wantTotal:    120,
+			wantUncached: 20,
+			wantTotal:    100,
 		},
 		{
-			name: "cache writes stay separate while reads are included",
-			context: CacheInputContext{
-				Provider:                  "devin",
-				BreakdownInputTotal:       110,
-				BreakdownUncachedTokens:   80,
-				BreakdownCacheReadTokens:  20,
-				BreakdownCacheWriteTokens: 10,
-				HasBreakdownInput:         true,
-			},
-			input:        100,
+			name:         "unknown read included write separate maps to mixed mode",
+			raw:          mixed,
+			input:        120,
+			output:       10,
+			total:        135,
+			cached:       25,
 			read:         20,
-			creation:     10,
+			creation:     5,
 			wantMode:     CacheInputModeReadIncludedCreationSeparate,
-			wantUncached: 80,
-			wantTotal:    110,
+			wantUncached: 100,
+			wantTotal:    125,
 		},
 		{
-			name: "explicit mode still wins over the breakdown",
-			context: CacheInputContext{
-				ExplicitMode:              CacheInputModeSeparate,
-				Provider:                  "cline-pass",
-				BreakdownInputTotal:       120,
-				BreakdownUncachedTokens:   100,
-				BreakdownCacheReadTokens:  20,
-				BreakdownCacheWriteTokens: 0,
-				HasBreakdownInput:         true,
-			},
+			name:         "unknown separate reasoning output is accepted",
+			raw:          separateReasoning,
 			input:        100,
-			read:         20,
+			output:       7,
+			reasoning:    3,
+			total:        110,
+			cached:       80,
+			read:         80,
+			wantMode:     CacheInputModeIncluded,
+			wantUncached: 20,
+			wantTotal:    100,
+		},
+		{
+			name:         "unclassified quality fails closed",
+			raw:          replaceCacheAccountingTestString(subset, `"quality":"complete"`, `"quality":"unclassified"`),
+			input:        100,
+			cached:       80,
+			read:         80,
 			wantMode:     CacheInputModeSeparate,
 			wantUncached: 100,
-			wantTotal:    120,
+			wantTotal:    180,
 		},
 		{
-			name: "unrecognized breakdown falls back to name inference",
-			context: CacheInputContext{
-				Provider:                  "cline-pass",
-				BreakdownInputTotal:       999,
-				BreakdownUncachedTokens:   1,
-				BreakdownCacheReadTokens:  2,
-				BreakdownCacheWriteTokens: 0,
-				HasBreakdownInput:         true,
-			},
-			input:        538732,
-			read:         535808,
+			name:         "future accounting version fails closed",
+			raw:          replaceCacheAccountingTestString(subset, `"accounting_version":2`, `"accounting_version":3`),
+			input:        100,
+			cached:       80,
+			read:         80,
 			wantMode:     CacheInputModeSeparate,
-			wantUncached: 538732,
-			wantTotal:    1074540,
+			wantUncached: 100,
+			wantTotal:    180,
+		},
+		{
+			name:         "missing zero bucket fails closed",
+			raw:          replaceCacheAccountingTestString(subset, `,"cache_write_tokens":0`, ""),
+			input:        100,
+			cached:       80,
+			read:         80,
+			wantMode:     CacheInputModeSeparate,
+			wantUncached: 100,
+			wantTotal:    180,
+		},
+		{
+			name:         "raw cache mismatch fails closed",
+			raw:          subset,
+			input:        100,
+			cached:       79,
+			read:         79,
+			wantMode:     CacheInputModeSeparate,
+			wantUncached: 100,
+			wantTotal:    179,
+		},
+		{
+			name:         "canonical total mismatch fails closed",
+			raw:          subset,
+			input:        100,
+			output:       10,
+			total:        111,
+			cached:       80,
+			read:         80,
+			wantMode:     CacheInputModeSeparate,
+			wantUncached: 100,
+			wantTotal:    180,
+		},
+		{
+			name:         "canonical output mismatch fails closed",
+			raw:          subset,
+			input:        100,
+			output:       9,
+			total:        110,
+			cached:       80,
+			read:         80,
+			wantMode:     CacheInputModeSeparate,
+			wantUncached: 100,
+			wantTotal:    180,
+		},
+		{
+			name:         "canonical reasoning mismatch fails closed",
+			raw:          subset,
+			input:        100,
+			output:       10,
+			reasoning:    1,
+			total:        110,
+			cached:       80,
+			read:         80,
+			wantMode:     CacheInputModeSeparate,
+			wantUncached: 100,
+			wantTotal:    180,
+		},
+		{
+			name:         "known provider remains authoritative",
+			context:      CacheInputContext{Provider: "openai"},
+			raw:          independent,
+			input:        20,
+			cached:       80,
+			read:         80,
+			wantMode:     CacheInputModeIncluded,
+			wantUncached: 0,
+			wantTotal:    20,
+		},
+		{
+			name:         "explicit mode remains authoritative",
+			context:      CacheInputContext{ExplicitMode: CacheInputModeSeparate},
+			raw:          subset,
+			input:        100,
+			cached:       80,
+			read:         80,
+			wantMode:     CacheInputModeSeparate,
+			wantUncached: 100,
+			wantTotal:    180,
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := NormalizeCacheAccounting(tt.context, tt.input, tt.cached, 0, tt.read, tt.creation)
-			if got.Mode != tt.wantMode || got.UncachedInputTokens != tt.wantUncached || got.TotalInputTokens != tt.wantTotal {
-				t.Fatalf("accounting = %+v, want mode=%s uncached=%d total=%d", got, tt.wantMode, tt.wantUncached, tt.wantTotal)
+			output := tt.output
+			if output == 0 {
+				output = 10
+			}
+			total := tt.total
+			if total == 0 {
+				total = 110
+			}
+			got := NormalizeCacheAccountingWithRawJSON(
+				tt.context,
+				tt.raw,
+				tt.input,
+				output,
+				tt.reasoning,
+				total,
+				tt.cached,
+				0,
+				tt.read,
+				tt.creation,
+			)
+			if got.Mode != tt.wantMode ||
+				got.UncachedInputTokens != tt.wantUncached ||
+				got.TotalInputTokens != tt.wantTotal {
+				t.Fatalf("accounting = %+v, want mode=%q uncached=%d total=%d",
+					got, tt.wantMode, tt.wantUncached, tt.wantTotal)
 			}
 		})
 	}
 }
 
-func TestRawCacheAccountingHintsReadCanonicalBreakdown(t *testing.T) {
-	raw := `{"provider":"cline-pass","tokens":{"input_tokens":538732,"cache_read_tokens":535808},"token_breakdown":{"schema_version":2,"quality":"complete","input":{"total_tokens":538732,"uncached_tokens":2924,"cache_read_tokens":535808,"cache_write_tokens":0}}}`
-	hints := RawCacheAccountingHintsFromJSON(raw)
-	if !hints.HasBreakdownInput || hints.BreakdownInputTotal != 538732 || hints.BreakdownUncachedTokens != 2924 || hints.BreakdownCacheReadTokens != 535808 || hints.BreakdownCacheWriteTokens != 0 {
-		t.Fatalf("hints = %+v, want the canonical input breakdown", hints)
+func replaceCacheAccountingTestString(input, old, replacement string) string {
+	if old == "" {
+		return input
 	}
-
-	without := RawCacheAccountingHintsFromJSON(`{"tokens":{"input_tokens":10}}`)
-	if without.HasBreakdownInput {
-		t.Fatalf("unexpected breakdown: %+v", without)
+	for offset := 0; offset+len(old) <= len(input); offset++ {
+		if input[offset:offset+len(old)] == old {
+			return input[:offset] + replacement + input[offset+len(old):]
+		}
 	}
-
-	nested := RawCacheAccountingHintsFromJSON(`{"detail":{"token_breakdown":{"input":{"total_tokens":120,"uncached_tokens":100,"cache_read_tokens":20,"cache_write_tokens":0}}}}`)
-	if !nested.HasBreakdownInput || nested.BreakdownInputTotal != 120 || nested.BreakdownUncachedTokens != 100 {
-		t.Fatalf("nested hints = %+v", nested)
-	}
+	return input
 }
 
-func TestNormalizeRawUsesCanonicalBreakdownForPluginExecutor(t *testing.T) {
-	event, err := NormalizeRaw([]byte(`{
-"timestamp":"2026-10-11T12:09:44Z",
-"provider":"cline-pass",
-"executor_type":"executorAdapter",
-"model":"deepseek-flash",
-"alias":"deepseek-flash",
-"tokens":{"input_tokens":538732,"cached_tokens":535808,"cache_read_tokens":535808,"output_tokens":1542,"reasoning_tokens":929,"total_tokens":540274},
-"token_breakdown":{"schema_version":2,"quality":"complete","total_tokens":540274,"input":{"total_tokens":538732,"uncached_tokens":2924,"cache_read_tokens":535808,"cache_write_tokens":0}}
-}`))
-	if err != nil {
-		t.Fatalf("normalize raw: %v", err)
-	}
-	if event.CacheInputMode != CacheInputModeIncluded {
-		t.Fatalf("mode = %q, want %q", event.CacheInputMode, CacheInputModeIncluded)
-	}
-	if event.NormalizedTotalInputTokens != 538732 || event.NormalizedUncachedInputTokens != 2924 {
-		t.Fatalf("normalized input = total:%d uncached:%d, want 538732/2924", event.NormalizedTotalInputTokens, event.NormalizedUncachedInputTokens)
-	}
-}

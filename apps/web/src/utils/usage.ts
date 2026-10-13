@@ -474,12 +474,6 @@ export interface CacheInputContext {
   resolvedModel?: unknown;
   requestedModel?: unknown;
   displayModel?: unknown;
-  /** Canonical input breakdown published with the payload (token_breakdown.input). */
-  breakdownInputTotal?: unknown;
-  breakdownUncachedTokens?: unknown;
-  breakdownCacheReadTokens?: unknown;
-  breakdownCacheWriteTokens?: unknown;
-  hasBreakdownInput?: unknown;
 }
 
 const normalizeCacheIdentity = (value: unknown): string =>
@@ -572,59 +566,15 @@ const classifyModelCacheInputMode = (value: unknown): CacheInputMode | undefined
   return undefined;
 };
 
-const readBreakdownCount = (value: unknown): number | undefined => {
-  if (typeof value === 'number') {
-    return Number.isFinite(value) && value >= 0 ? value : undefined;
-  }
-  if (typeof value === 'string' && value.trim() !== '') {
-    const parsed = Number(value.trim());
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
-  }
-  return undefined;
-};
-
-const explicitCacheInputMode = (context: CacheInputContext): CacheInputMode | undefined => {
-  const normalizedMode = normalizeCacheIdentity(context.explicitMode);
-  if (normalizedMode === 'separate_from_input') return 'separate_from_input';
-  if (normalizedMode === 'included_in_input') return 'included_in_input';
-  if (normalizedMode === 'read_included_creation_separate') return 'read_included_creation_separate';
-  return undefined;
-};
-
-/**
- * Derives the accounting convention from the canonical input breakdown published
- * with the payload. The gateway normalizes every provider's cache convention into
- * that non-overlapping contract, so matching the raw input total against the
- * breakdown tells whether it already contains the cache buckets.
- */
-const breakdownCacheInputMode = (
-  context: CacheInputContext,
-  rawInput: number
-): CacheInputMode | undefined => {
-  if (rawInput <= 0) return undefined;
-  const total = readBreakdownCount(context.breakdownInputTotal);
-  const uncached = readBreakdownCount(context.breakdownUncachedTokens);
-  const read = readBreakdownCount(context.breakdownCacheReadTokens);
-  const write = readBreakdownCount(context.breakdownCacheWriteTokens);
-  if (total === undefined || uncached === undefined || read === undefined || write === undefined) {
-    return undefined;
-  }
-  if (total <= 0 || uncached + read + write !== total) return undefined;
-  if (read + write === 0) return undefined;
-  if (total === rawInput && uncached === rawInput - read - write) return 'included_in_input';
-  if (uncached === rawInput && total === rawInput + read + write) return 'separate_from_input';
-  if (write > 0 && uncached === rawInput - read && total === rawInput + write) {
-    return 'read_included_creation_separate';
-  }
-  return undefined;
-};
 export const inferCacheInputMode = (
   context: CacheInputContext,
   cacheReadTokens: number,
   cacheCreationTokens: number
 ): CacheInputMode => {
-  const explicitMode = explicitCacheInputMode(context);
-  if (explicitMode) return explicitMode;
+  const normalizedMode = normalizeCacheIdentity(context.explicitMode);
+  if (normalizedMode === 'separate_from_input') return 'separate_from_input';
+  if (normalizedMode === 'included_in_input') return 'included_in_input';
+  if (normalizedMode === 'read_included_creation_separate') return 'read_included_creation_separate';
   const executorMode = classifyExecutorCacheInputMode(context.executorType);
   if (executorMode) return executorMode;
   for (const provider of [context.provider, context.providerSnapshot]) {
@@ -658,10 +608,7 @@ export const normalizeCacheAccounting = (input: {
     creation
   );
   const read = legacyRead + rawRead;
-  const mode =
-    explicitCacheInputMode(input.context) ??
-    breakdownCacheInputMode(input.context, rawInput) ??
-    inferCacheInputMode(input.context, rawRead, creation);
+  const mode = inferCacheInputMode(input.context, rawRead, creation);
   let totalInputTokens = rawInput;
   let uncachedInputTokens = Math.max(rawInput - read - creation, 0);
   if (mode === 'separate_from_input') {
@@ -896,8 +843,6 @@ const readTokens = (detail: Record<string, unknown>, modelName: string): UsageTo
   const tokensRaw = isRecord(detail.tokens) ? detail.tokens : {};
   const cacheReadTokens = readFirstTokenNumber(tokensRaw, CACHE_READ_TOKEN_KEYS);
   const cacheCreationTokens = readFirstTokenNumber(tokensRaw, CACHE_CREATION_TOKEN_KEYS);
-  const breakdownRaw = isRecord(detail.token_breakdown) ? detail.token_breakdown : {};
-  const breakdownInput = isRecord(breakdownRaw.input) ? breakdownRaw.input : {};
   const accounting = normalizeCacheAccounting({
     context: {
       explicitMode:
@@ -911,10 +856,6 @@ const readTokens = (detail: Record<string, unknown>, modelName: string): UsageTo
       resolvedModel: detail.resolved_model ?? detail.resolvedModel,
       requestedModel: detail.requested_model ?? detail.requestedModel ?? detail.alias,
       displayModel: modelName,
-      breakdownInputTotal: breakdownInput.total_tokens,
-      breakdownUncachedTokens: breakdownInput.uncached_tokens,
-      breakdownCacheReadTokens: breakdownInput.cache_read_tokens,
-      breakdownCacheWriteTokens: breakdownInput.cache_write_tokens,
     },
     inputTokens: tokensRaw.input_tokens ?? tokensRaw.inputTokens,
     cachedTokens: tokensRaw.cached_tokens ?? tokensRaw.cachedTokens,

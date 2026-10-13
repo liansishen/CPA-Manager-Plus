@@ -1852,7 +1852,15 @@ func eventFromExportedRecord(record map[string]any) (Event, bool, error) {
 	if explicitMode == "" {
 		explicitMode = rawHints.ExplicitMode
 	}
-	context := CacheInputContext{
+	if explicitMode == "" {
+		derivedMode := normalizeCacheInputMode(readString(record, "derived_cache_input_mode", "derivedCacheInputMode"))
+		if derivedMode == CacheInputModeIncluded ||
+			derivedMode == CacheInputModeSeparate ||
+			derivedMode == CacheInputModeReadIncludedCreationSeparate {
+			explicitMode = derivedMode
+		}
+	}
+	accounting := NormalizeCacheAccounting(CacheInputContext{
 		ExplicitMode:     explicitMode,
 		ExecutorType:     executorType,
 		Provider:         provider,
@@ -1860,8 +1868,7 @@ func eventFromExportedRecord(record map[string]any) (Event, bool, error) {
 		ResolvedModel:    resolvedModel,
 		RequestedModel:   requestedModel,
 		DisplayModel:     model,
-	}
-	accounting := NormalizeCacheAccounting(context.WithBreakdown(rawHints), inputTokens, cachedTokens, cacheTokens, cacheReadTokens, cacheCreationTokens)
+	}, inputTokens, cachedTokens, cacheTokens, cacheReadTokens, cacheCreationTokens)
 	headerQuotaRecoverAtMS := readInt(record, "header_quota_recover_at_ms", "headerQuotaRecoverAtMs")
 	headerQuotaUsedPercent := readOptionalFloat(record, "header_quota_used_percent", "headerQuotaUsedPercent")
 	headerQuotaPlanType := readString(record, "header_quota_plan_type", "headerQuotaPlanType")
@@ -2085,7 +2092,10 @@ func archiveDerivedFieldsFromRecord(record map[string]any) (CacheAccounting, int
 	rawMode, present := record["cache_input_mode"]
 	mode, ok := rawMode.(string)
 	mode = normalizeCacheInputMode(mode)
-	if !present || !ok || (mode != CacheInputModeIncluded && mode != CacheInputModeSeparate) {
+	if !present || !ok ||
+		(mode != CacheInputModeIncluded &&
+			mode != CacheInputModeSeparate &&
+			mode != CacheInputModeReadIncludedCreationSeparate) {
 		return CacheAccounting{}, 0, 0, nil, fmt.Errorf("%w: cache_input_mode is required and must be supported", ErrInvalidArchiveRecord)
 	}
 	read := func(key string) (int64, error) {
@@ -2304,8 +2314,7 @@ func eventFromLegacyDetail(
 	if requestedModel != "" {
 		displayModel = requestedModel
 	}
-	hints := RawCacheAccountingHintsFromJSON(rawJSON)
-	context := CacheInputContext{
+	accounting := NormalizeCacheAccounting(CacheInputContext{
 		ExplicitMode:     cacheInputModeFromRecord(detail),
 		ExecutorType:     executorType,
 		Provider:         provider,
@@ -2313,8 +2322,7 @@ func eventFromLegacyDetail(
 		ResolvedModel:    resolvedModel,
 		RequestedModel:   requestedModel,
 		DisplayModel:     displayModel,
-	}
-	accounting := NormalizeCacheAccounting(context.WithBreakdown(hints), inputTokens, cachedTokens, cacheTokens, cacheReadTokens, cacheCreationTokens)
+	}, inputTokens, cachedTokens, cacheTokens, cacheReadTokens, cacheCreationTokens)
 	if totalTokens <= 0 {
 		totalTokens = accounting.TotalInputTokens + maxInt64(outputTokens, 0) + maxInt64(reasoningTokens, 0)
 	}
