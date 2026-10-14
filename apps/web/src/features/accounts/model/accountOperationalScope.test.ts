@@ -7,6 +7,7 @@ const emptyStores = () => ({
   antigravityQuota: {},
   claudeQuota: {},
   clinePassQuota: {},
+  commandcodeQuota: {},
   codexQuota: {},
   kimiQuota: {},
   devinQuota: {},

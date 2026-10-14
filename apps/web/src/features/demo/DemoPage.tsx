@@ -141,6 +141,7 @@ const captureQuotaSnapshot = (state: QuotaStoreState) => ({
   antigravityQuota: state.antigravityQuota,
   claudeQuota: state.claudeQuota,
   clinePassQuota: state.clinePassQuota,
+  commandcodeQuota: state.commandcodeQuota,
   codexQuota: state.codexQuota,
   kimiQuota: state.kimiQuota,
   xaiQuota: state.xaiQuota,

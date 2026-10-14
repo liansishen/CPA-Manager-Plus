@@ -8,6 +8,7 @@ import {
   isAntigravityFile,
   isClaudeFile,
   isClinePassFile,
+  isCommandCodeFile,
   isCodexFile,
   isDevinFile,
   isDisabledAuthFile,
@@ -24,6 +25,7 @@ export type MonitoringAccountQuotaProvider =
   | 'antigravity'
   | 'claude'
   | 'cline-pass'
+  | 'commandcode'
   | 'codex'
   | 'devin'
   | 'gemini'
@@ -67,6 +69,7 @@ export const resolveMonitoringAccountQuotaProvider = (
   if (isCodexFile(file)) return 'codex';
   if (isClaudeFile(file)) return 'claude';
   if (isClinePassFile(file)) return 'cline-pass';
+  if (isCommandCodeFile(file)) return 'commandcode';
   if (isAntigravityFile(file)) return 'antigravity';
   if (isDevinFile(file)) return 'devin';
   if (isKimiFile(file)) return 'kimi';

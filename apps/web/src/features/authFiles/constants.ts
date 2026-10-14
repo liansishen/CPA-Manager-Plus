@@ -3,6 +3,7 @@ import iconAntigravity from '@/assets/icons/antigravity.svg';
 import iconClaude from '@/assets/icons/claude.svg';
 import iconCline from '@/assets/icons/cline.svg';
 import iconClineDark from '@/assets/icons/cline-dark.svg';
+import iconCommandCode from '@/assets/icons/commandcode.svg';
 import iconCodex from '@/assets/icons/codex.svg';
 import iconDevin from '@/assets/icons/devin.svg';
 import iconDevinDark from '@/assets/icons/devin-dark.svg';
@@ -34,6 +35,7 @@ export type QuotaProviderType =
   | 'claude'
   | 'cline-pass'
   | 'codex'
+  | 'commandcode'
   | 'kimi'
   | 'xai'
   | 'devin'
@@ -45,6 +47,7 @@ export const QUOTA_PROVIDER_TYPES = new Set<QuotaProviderType>([
   'claude',
   'cline-pass',
   'codex',
+  'commandcode',
   'kimi',
   'xai',
   'devin',
@@ -131,6 +134,10 @@ export const TYPE_COLORS: Record<string, TypeColorSet> = {
     light: { bg: '#e5f2ff', text: '#0064e0' },
     dark: { bg: '#0b3564', text: '#70b5ff' },
   },
+  commandcode: {
+    light: { bg: '#d9f5f2', text: '#0f766e' },
+    dark: { bg: '#0b3b38', text: '#5eead4' },
+  },
   empty: {
     light: { bg: '#f5f5f5', text: '#616161' },
     dark: { bg: '#424242', text: '#bdbdbd' },
@@ -146,6 +153,7 @@ export const AUTH_FILE_ICONS: Record<string, AuthFileIconAsset> = {
   aistudio: iconGemini,
   claude: iconClaude,
   'cline-pass': { light: iconCline, dark: iconClineDark },
+  commandcode: iconCommandCode,
   codex: iconCodex,
   devin: { light: iconDevin, dark: iconDevinDark },
   gemini: iconGemini,
@@ -216,6 +224,7 @@ export const getTypeLabel = (t: TFunction, type: string): string => {
   if (providerKey === 'iflow') return 'iFlow';
   if (providerKey === 'meta') return 'Muse (Meta)';
   if (providerKey === 'cline-pass') return 'Cline Pass';
+  if (providerKey === 'commandcode') return 'CommandCode';
   return type.charAt(0).toUpperCase() + type.slice(1);
 };
 

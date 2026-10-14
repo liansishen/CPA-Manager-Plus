@@ -2324,6 +2324,17 @@
     "invalid_response": "Invalid Cline Pass quota response",
     "empty": "No Cline Pass quota data"
   },
+  "commandcode_quota": {
+    "title": "CommandCode quota",
+    "five_hour": "5-hour limit",
+    "weekly": "Weekly limit",
+    "monthly": "Monthly limit",
+    "missing_identity": "Unable to identify the CommandCode credential",
+    "disabled": "CommandCode credential is disabled",
+    "request_failed": "Failed to fetch CommandCode quota",
+    "invalid_response": "Invalid CommandCode quota response",
+    "empty": "No CommandCode quota data"
+  },
   "claude_quota": {
     "title": "Claude Quota",
     "empty_title": "No Claude OAuth Files",

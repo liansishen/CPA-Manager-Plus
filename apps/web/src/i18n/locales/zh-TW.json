@@ -2322,6 +2322,17 @@
     "invalid_response": "Cline Pass 額度回應無效",
     "empty": "暫無 Cline Pass 額度資料"
   },
+  "commandcode_quota": {
+    "title": "CommandCode 額度",
+    "five_hour": "5 小時額度",
+    "weekly": "每週額度",
+    "monthly": "每月額度",
+    "missing_identity": "無法識別 CommandCode 憑證",
+    "disabled": "CommandCode 憑證已停用",
+    "request_failed": "取得 CommandCode 額度失敗",
+    "invalid_response": "CommandCode 額度回應無效",
+    "empty": "暫無 CommandCode 額度資料"
+  },
   "claude_quota": {
     "title": "Claude 配額",
     "empty_title": "暫無 Claude OAuth 驗證",

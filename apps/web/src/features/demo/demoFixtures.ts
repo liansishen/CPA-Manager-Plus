@@ -38,6 +38,7 @@ import type {
   AntigravityQuotaState,
   ClaudeQuotaState,
   ClinePassQuotaState,
+  CommandCodeQuotaState,
   CodexQuotaState,
   CredentialScopedQuotaState,
   DevinQuotaState,
@@ -67,6 +68,7 @@ export type DemoQuotaStoreState = {
   antigravityQuota: Record<string, AntigravityQuotaState>;
   claudeQuota: Record<string, ClaudeQuotaState>;
   clinePassQuota: Record<string, ClinePassQuotaState>;
+  commandcodeQuota: Record<string, CommandCodeQuotaState>;
   codexQuota: Record<string, CodexQuotaState>;
   devinQuota: Record<string, DevinQuotaState>;
   kimiQuota: Record<string, KimiQuotaState>;
@@ -6203,6 +6205,7 @@ const getDemoQuotaStoreStateByFileName = (
 ): DemoQuotaStoreState => ({
   metaQuota: {},
   clinePassQuota: {},
+  commandcodeQuota: {},
   codexQuota: {
     'codex-team-01.json': {
       status: 'success',
@@ -6914,6 +6917,7 @@ export const getDemoQuotaStoreState = (baseNow = getDemoEvidenceEpochMs()): Demo
     antigravityQuota: scopeDemoQuotaRecord(raw.antigravityQuota, filesByName),
     claudeQuota: scopeDemoQuotaRecord(raw.claudeQuota, filesByName),
     clinePassQuota: scopeDemoQuotaRecord(raw.clinePassQuota, filesByName),
+    commandcodeQuota: scopeDemoQuotaRecord(raw.commandcodeQuota, filesByName),
     codexQuota: scopeDemoQuotaRecord(raw.codexQuota, filesByName),
     devinQuota: scopeDemoQuotaRecord(raw.devinQuota, filesByName),
     kimiQuota: scopeDemoQuotaRecord(raw.kimiQuota, filesByName),

@@ -1,5 +1,6 @@
 import type { TFunction } from 'i18next';
 import { getClinePassQuotaWindowLabel } from '@/utils/quota/clinePassDisplay';
+import { getCommandCodeQuotaWindowLabel } from '@/utils/quota/commandcodeDisplay';
 import type {
   AntigravityQuotaGroup,
   AntigravityQuotaState,
@@ -7,6 +8,8 @@ import type {
   ClaudeQuotaState,
   ClinePassQuotaState,
   ClinePassQuotaWindow,
+  CommandCodeQuotaState,
+  CommandCodeQuotaWindow,
   ClaudeQuotaWindow,
   CodexQuotaState,
   CodexQuotaWindow,
@@ -1345,6 +1348,20 @@ export const buildClinePassAccountQuotaWindows = (
         : null,
   }));
 
+export const buildCommandCodeAccountQuotaWindows = (
+  windows: CommandCodeQuotaWindow[],
+  t: TFunction
+): AccountQuotaWindow[] =>
+  windows.map((window) => ({
+    id: `commandcode:${window.id}`,
+    label: getCommandCodeQuotaWindowLabel(window.id, t),
+    remainingPercent: window.remainingPercent,
+    resetLabel: formatQuotaResetTime(window.resetAtMs),
+    resetAtMs: window.resetAtMs,
+    resetAccuracy: window.resetAtMs !== null ? 'exact' : 'unknown',
+    usageLabel: null,
+  }));
+
 export const getAccountQuotaProviderLabel = (
   provider: MonitoringAccountQuotaProvider,
   t: TFunction
@@ -1354,6 +1371,8 @@ export const getAccountQuotaProviderLabel = (
       return t('antigravity_quota.title');
     case 'cline-pass':
       return t('cline_pass_quota.title');
+    case 'commandcode':
+      return t('commandcode_quota.title');
     case 'claude':
       return t('claude_quota.title');
     case 'kimi':
@@ -1380,6 +1399,8 @@ const getAccountQuotaEmptyMessage = (provider: MonitoringAccountQuotaProvider, t
       return t('antigravity_quota.empty_models');
     case 'cline-pass':
       return t('cline_pass_quota.empty');
+    case 'commandcode':
+      return t('commandcode_quota.empty');
     case 'claude':
       return t('claude_quota.empty_windows');
     case 'kimi':
@@ -1426,6 +1447,7 @@ export type MonitoringQuotaStores = {
   antigravityQuota: Record<string, AntigravityQuotaState>;
   claudeQuota: Record<string, ClaudeQuotaState>;
   clinePassQuota: Record<string, ClinePassQuotaState>;
+  commandcodeQuota: Record<string, CommandCodeQuotaState>;
   codexQuota: Record<string, CodexQuotaState>;
   devinQuota: Record<string, DevinQuotaState>;
   kimiQuota: Record<string, KimiQuotaState>;
@@ -1436,6 +1458,7 @@ export type MonitoringProviderQuotaState =
   | AntigravityQuotaState
   | ClaudeQuotaState
   | ClinePassQuotaState
+  | CommandCodeQuotaState
   | CodexQuotaState
   | DevinQuotaState
   | KimiQuotaState
@@ -1501,6 +1524,21 @@ export const buildAccountQuotaEntryFromProviderState = (
         {
           ...buildBaseAccountQuotaEntry({ ...target, planType }, t, metaLabels),
           windows: buildClinePassAccountQuotaWindows(quota.windows, t, quota.sharedCredentials),
+          ...(quota.observedAtMs !== null ? { observedAtMs: quota.observedAtMs } : {}),
+        },
+        quota
+      );
+    }
+    case 'commandcode': {
+      const quota = state as CommandCodeQuotaState;
+      const planType = quota.planType ?? target.planType;
+      const metaLabels = [planType ? `${t('plans.label')}: ${planType}` : null].filter(
+        (label): label is string => Boolean(label)
+      );
+      return applyProviderQuotaStateMetadata(
+        {
+          ...buildBaseAccountQuotaEntry({ ...target, planType }, t, metaLabels),
+          windows: buildCommandCodeAccountQuotaWindows(quota.windows, t),
           ...(quota.observedAtMs !== null ? { observedAtMs: quota.observedAtMs } : {}),
         },
         quota
@@ -1628,6 +1666,12 @@ export const buildCachedAccountQuotaEntry = (
       return buildAccountQuotaEntryFromProviderState(
         target,
         getCredentialScopedQuotaState(stores.clinePassQuota, target.file),
+        t
+      );
+    case 'commandcode':
+      return buildAccountQuotaEntryFromProviderState(
+        target,
+        getCredentialScopedQuotaState(stores.commandcodeQuota, target.file),
         t
       );
     case 'claude':

@@ -66,6 +66,7 @@ const emptyStores = (): MonitoringQuotaStores => ({
   antigravityQuota: {},
   claudeQuota: {},
   clinePassQuota: {},
+  commandcodeQuota: {},
   codexQuota: {},
   devinQuota: {},
   kimiQuota: {},

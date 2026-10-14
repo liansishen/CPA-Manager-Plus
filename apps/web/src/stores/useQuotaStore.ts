@@ -8,6 +8,7 @@ import type {
   AntigravityQuotaState,
   ClaudeQuotaState,
   ClinePassQuotaState,
+  CommandCodeQuotaState,
   CodexQuotaState,
   CredentialScopedQuotaState,
   DevinQuotaState,
@@ -26,6 +27,7 @@ interface QuotaStoreState {
   antigravityQuota: Record<string, AntigravityQuotaState>;
   claudeQuota: Record<string, ClaudeQuotaState>;
   clinePassQuota: Record<string, ClinePassQuotaState>;
+  commandcodeQuota: Record<string, CommandCodeQuotaState>;
   codexQuota: Record<string, CodexQuotaState>;
   devinQuota: Record<string, DevinQuotaState>;
   kimiQuota: Record<string, KimiQuotaState>;
@@ -34,6 +36,7 @@ interface QuotaStoreState {
   setAntigravityQuota: (updater: QuotaUpdater<Record<string, AntigravityQuotaState>>) => void;
   setClaudeQuota: (updater: QuotaUpdater<Record<string, ClaudeQuotaState>>) => void;
   setClinePassQuota: (updater: QuotaUpdater<Record<string, ClinePassQuotaState>>) => void;
+  setCommandcodeQuota: (updater: QuotaUpdater<Record<string, CommandCodeQuotaState>>) => void;
   setCodexQuota: (updater: QuotaUpdater<Record<string, CodexQuotaState>>) => void;
   setDevinQuota: (updater: QuotaUpdater<Record<string, DevinQuotaState>>) => void;
   setKimiQuota: (updater: QuotaUpdater<Record<string, KimiQuotaState>>) => void;
@@ -54,6 +57,7 @@ const emptyQuotaState = {
   antigravityQuota: {},
   claudeQuota: {},
   clinePassQuota: {},
+  commandcodeQuota: {},
   codexQuota: {},
   devinQuota: {},
   kimiQuota: {},
@@ -161,6 +165,10 @@ export const useQuotaStore = create<QuotaStoreState>()(
         set((state) => ({
           clinePassQuota: resolveUpdater(updater, state.clinePassQuota),
         })),
+      setCommandcodeQuota: (updater) =>
+        set((state) => ({
+          commandcodeQuota: resolveUpdater(updater, state.commandcodeQuota),
+        })),
       setCodexQuota: (updater) =>
         set((state) => ({
           codexQuota: resolveUpdater(updater, state.codexQuota),
@@ -211,6 +219,7 @@ export const useQuotaStore = create<QuotaStoreState>()(
         antigravityQuota: filterPersistableQuotaStates(state.antigravityQuota),
         claudeQuota: filterPersistableQuotaStates(state.claudeQuota),
         clinePassQuota: filterPersistableQuotaStates(state.clinePassQuota),
+        commandcodeQuota: filterPersistableQuotaStates(state.commandcodeQuota),
         codexQuota: filterPersistableCodexQuota(state.codexQuota),
         devinQuota: filterPersistableQuotaStates(state.devinQuota),
         kimiQuota: filterPersistableQuotaStates(state.kimiQuota),
@@ -225,6 +234,7 @@ export const useQuotaStore = create<QuotaStoreState>()(
           antigravityQuota: filterPersistableQuotaStates(persisted?.antigravityQuota),
           claudeQuota: filterPersistableQuotaStates(persisted?.claudeQuota),
           clinePassQuota: filterPersistableQuotaStates(persisted?.clinePassQuota),
+          commandcodeQuota: filterPersistableQuotaStates(persisted?.commandcodeQuota),
           codexQuota: filterPersistableCodexQuota(persisted?.codexQuota),
           devinQuota: filterPersistableQuotaStates(persisted?.devinQuota),
           kimiQuota: filterPersistableQuotaStates(persisted?.kimiQuota),

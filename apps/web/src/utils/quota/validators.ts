@@ -80,3 +80,11 @@ export function isDisabledAuthFile(file: AuthFileItem): boolean {
 export function isClinePassFile(file: AuthFileItem): boolean {
   return resolveAuthProvider(file) === 'cline-pass';
 }
+
+const COMMANDCODE_FILE_PATTERN = /^commandcode-[A-Za-z0-9_-]+\.json$/;
+
+export function isCommandCodeFile(file: AuthFileItem): boolean {
+  if (resolveAuthProvider(file) === 'commandcode') return true;
+  const name = typeof file.name === 'string' ? file.name.trim() : '';
+  return COMMANDCODE_FILE_PATTERN.test(name);
+}

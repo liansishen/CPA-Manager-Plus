@@ -18,6 +18,7 @@ const emptyStores = (): AccountQuotaStores => ({
   antigravityQuota: {},
   claudeQuota: {},
   clinePassQuota: {},
+  commandcodeQuota: {},
   codexQuota: {},
   kimiQuota: {},
   devinQuota: {},

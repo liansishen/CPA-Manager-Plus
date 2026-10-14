@@ -6,6 +6,8 @@ import type {
   CodexQuotaState,
   ClinePassQuotaData,
   ClinePassQuotaState,
+  CommandCodeQuotaData,
+  CommandCodeQuotaState,
   CodexQuotaWindow,
   CodexRateLimitResetCredit,
   CredentialScopedQuotaState,
@@ -31,6 +33,8 @@ import {
   fetchAntigravityQuota,
   fetchClaudeQuota,
   fetchClinePassQuota,
+  fetchCommandCodeQuota,
+  emptyCommandCodeCredits,
   fetchCodexQuota,
   fetchCodexQuotaSummary,
   fetchDevinQuota,
@@ -68,6 +72,7 @@ type QuotaType =
   | 'claude'
   | 'cline-pass'
   | 'codex'
+  | 'commandcode'
   | 'kimi'
   | 'xai'
   | 'devin'
@@ -950,6 +955,46 @@ export const CLINE_PASS_CONFIG: QuotaConfig<ClinePassQuotaState, ClinePassQuotaD
     observedAtMs: null,
     checkedAtMs: null,
     sharedCredentials: null,
+    providerStatus: 'unavailable',
+    error: message,
+    errorStatus: status,
+    failedAtMs: Date.now(),
+    ...buildQuotaCredentialIdentity(file),
+  }),
+  scopeState: scopeCredentialQuotaState,
+};
+
+export const COMMANDCODE_CONFIG: QuotaConfig<CommandCodeQuotaState, CommandCodeQuotaData> = {
+  type: 'commandcode',
+  i18nPrefix: 'commandcode_quota',
+  fetchQuota: fetchCommandCodeQuota,
+  getStoreKey: getQuotaCredentialStoreKey,
+  buildLoadingState: (file) => ({
+    status: 'loading',
+    windows: [],
+    planType: null,
+    planEndMs: null,
+    observedAtMs: null,
+    checkedAtMs: null,
+    credits: emptyCommandCodeCredits(),
+    providerStatus: 'loading',
+    ...buildQuotaCredentialIdentity(file),
+  }),
+  buildSuccessState: (data, file) => ({
+    ...data,
+    status: data.error ? 'error' : 'success',
+    ...buildQuotaCredentialIdentity(file),
+    fetchedAtMs: data.observedAtMs ?? undefined,
+    failedAtMs: data.error ? (data.checkedAtMs ?? Date.now()) : undefined,
+  }),
+  buildErrorState: (message, status, file) => ({
+    status: 'error',
+    windows: [],
+    planType: null,
+    planEndMs: null,
+    observedAtMs: null,
+    checkedAtMs: null,
+    credits: emptyCommandCodeCredits(),
     providerStatus: 'unavailable',
     error: message,
     errorStatus: status,

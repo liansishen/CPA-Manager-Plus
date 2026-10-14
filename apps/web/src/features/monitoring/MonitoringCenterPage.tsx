@@ -82,6 +82,7 @@ import {
   ANTIGRAVITY_CONFIG,
   CLAUDE_CONFIG,
   CLINE_PASS_CONFIG,
+  COMMANDCODE_CONFIG,
   CODEX_CONFIG,
   DEVIN_CONFIG,
   KIMI_CONFIG,
@@ -282,6 +283,7 @@ export function MonitoringCenterPage() {
   const antigravityQuota = useQuotaStore((state) => state.antigravityQuota);
   const claudeQuota = useQuotaStore((state) => state.claudeQuota);
   const clinePassQuota = useQuotaStore((state) => state.clinePassQuota);
+  const commandcodeQuota = useQuotaStore((state) => state.commandcodeQuota);
   const codexQuota = useQuotaStore((state) => state.codexQuota);
   const devinQuota = useQuotaStore((state) => state.devinQuota);
   const kimiQuota = useQuotaStore((state) => state.kimiQuota);
@@ -291,16 +293,27 @@ export function MonitoringCenterPage() {
       antigravityQuota,
       claudeQuota,
       clinePassQuota,
+      commandcodeQuota,
       codexQuota,
       devinQuota,
       kimiQuota,
       xaiQuota,
     }),
-    [antigravityQuota, claudeQuota, clinePassQuota, codexQuota, devinQuota, kimiQuota, xaiQuota]
+    [
+      antigravityQuota,
+      claudeQuota,
+      clinePassQuota,
+      commandcodeQuota,
+      codexQuota,
+      devinQuota,
+      kimiQuota,
+      xaiQuota,
+    ]
   );
   const setAntigravityQuota = useQuotaStore((state) => state.setAntigravityQuota);
   const setClaudeQuota = useQuotaStore((state) => state.setClaudeQuota);
   const setClinePassQuota = useQuotaStore((state) => state.setClinePassQuota);
+  const setCommandcodeQuota = useQuotaStore((state) => state.setCommandcodeQuota);
   const setCodexQuota = useQuotaStore((state) => state.setCodexQuota);
   const setDevinQuota = useQuotaStore((state) => state.setDevinQuota);
   const setKimiQuota = useQuotaStore((state) => state.setKimiQuota);
@@ -1405,6 +1418,21 @@ export function MonitoringCenterPage() {
           }
           return result;
         }
+        case 'commandcode': {
+          const result = await run(
+            COMMANDCODE_CONFIG,
+            setCommandcodeQuota,
+            getCredentialScopedQuotaState(sharedQuotaStores.commandcodeQuota, target.file)
+          );
+          if (result?.state?.status === 'error') {
+            return {
+              ...result,
+              status: 'error',
+              error: result.state.error ?? t('commandcode_quota.request_failed'),
+            };
+          }
+          return result;
+        }
         case 'claude':
           return run(
             CLAUDE_CONFIG,
@@ -1456,6 +1484,7 @@ export function MonitoringCenterPage() {
       setAntigravityQuota,
       setClaudeQuota,
       setClinePassQuota,
+      setCommandcodeQuota,
       setCodexQuota,
       setDevinQuota,
       setKimiQuota,
