@@ -4,6 +4,7 @@ import iconClaude from '@/assets/icons/claude.svg';
 import iconCline from '@/assets/icons/cline.svg';
 import iconClineDark from '@/assets/icons/cline-dark.svg';
 import iconCommandCodeBridge from '@/assets/icons/commandcodebridge.png';
+import iconCommandCodeBridgeDark from '@/assets/icons/commandcodebridge-dark.png';
 import iconCodex from '@/assets/icons/codex.svg';
 import iconDevin from '@/assets/icons/devin.svg';
 import iconDevinDark from '@/assets/icons/devin-dark.svg';
@@ -153,7 +154,7 @@ export const AUTH_FILE_ICONS: Record<string, AuthFileIconAsset> = {
   aistudio: iconGemini,
   claude: iconClaude,
   'cline-pass': { light: iconCline, dark: iconClineDark },
-  commandcodebridge: iconCommandCodeBridge,
+  commandcodebridge: { light: iconCommandCodeBridge, dark: iconCommandCodeBridgeDark },
   codex: iconCodex,
   devin: { light: iconDevin, dark: iconDevinDark },
   gemini: iconGemini,
