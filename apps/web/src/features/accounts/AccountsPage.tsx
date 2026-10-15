@@ -50,7 +50,7 @@ import {
   ANTIGRAVITY_CONFIG,
   CLAUDE_CONFIG,
   CLINE_PASS_CONFIG,
-  COMMANDCODE_CONFIG,
+  COMMANDCODEBRIDGE_CONFIG,
   CODEX_CONFIG,
   CODEX_SUMMARY_CONFIG,
   DEVIN_CONFIG,
@@ -1374,7 +1374,7 @@ export function AccountsPage() {
   const antigravityQuota = useQuotaStore((state) => state.antigravityQuota);
   const claudeQuota = useQuotaStore((state) => state.claudeQuota);
   const clinePassQuota = useQuotaStore((state) => state.clinePassQuota);
-  const commandcodeQuota = useQuotaStore((state) => state.commandcodeQuota);
+  const commandcodebridgeQuota = useQuotaStore((state) => state.commandcodebridgeQuota);
   const codexQuota = useQuotaStore((state) => state.codexQuota);
   const devinQuota = useQuotaStore((state) => state.devinQuota);
   const kimiQuota = useQuotaStore((state) => state.kimiQuota);
@@ -1385,7 +1385,7 @@ export function AccountsPage() {
       antigravityQuota,
       claudeQuota,
       clinePassQuota,
-      commandcodeQuota,
+      commandcodebridgeQuota,
       codexQuota,
       devinQuota,
       kimiQuota,
@@ -1396,7 +1396,7 @@ export function AccountsPage() {
       antigravityQuota,
       claudeQuota,
       clinePassQuota,
-      commandcodeQuota,
+      commandcodebridgeQuota,
       codexQuota,
       devinQuota,
       kimiQuota,
@@ -1407,7 +1407,7 @@ export function AccountsPage() {
   const setAntigravityQuota = useQuotaStore((state) => state.setAntigravityQuota);
   const setClaudeQuota = useQuotaStore((state) => state.setClaudeQuota);
   const setClinePassQuota = useQuotaStore((state) => state.setClinePassQuota);
-  const setCommandcodeQuota = useQuotaStore((state) => state.setCommandcodeQuota);
+  const setCommandcodebridgeQuota = useQuotaStore((state) => state.setCommandcodebridgeQuota);
   const setCodexQuota = useQuotaStore((state) => state.setCodexQuota);
   const setDevinQuota = useQuotaStore((state) => state.setDevinQuota);
   const setKimiQuota = useQuotaStore((state) => state.setKimiQuota);
@@ -3067,8 +3067,8 @@ export function AccountsPage() {
         case CLINE_PASS_CONFIG.type:
           prune(CLINE_PASS_CONFIG, setClinePassQuota);
           break;
-        case COMMANDCODE_CONFIG.type:
-          prune(COMMANDCODE_CONFIG, setCommandcodeQuota);
+        case COMMANDCODEBRIDGE_CONFIG.type:
+          prune(COMMANDCODEBRIDGE_CONFIG, setCommandcodebridgeQuota);
           break;
         case CLAUDE_CONFIG.type:
           prune(CLAUDE_CONFIG, setClaudeQuota);
@@ -3099,7 +3099,7 @@ export function AccountsPage() {
       setAntigravityQuota,
       setClaudeQuota,
       setClinePassQuota,
-      setCommandcodeQuota,
+      setCommandcodebridgeQuota,
       setCredentialEvidenceBoundaries,
       setCodexQuota,
       setDevinQuota,
@@ -3929,8 +3929,8 @@ export function AccountsPage() {
           }
           break;
         }
-        case COMMANDCODE_CONFIG.type: {
-          const state = getCredentialScopedQuotaState(baseQuotaStores.commandcodeQuota, row.raw);
+        case COMMANDCODEBRIDGE_CONFIG.type: {
+          const state = getCredentialScopedQuotaState(baseQuotaStores.commandcodebridgeQuota, row.raw);
           if (state?.status === 'success' && state.windows.length > 0) {
             fetchedAtMs = state.observedAtMs ?? undefined;
             inventoryMode = 'partial';
@@ -6510,16 +6510,16 @@ export function AccountsPage() {
           }
           return toAccountQuotaRefreshOutcome(result);
         }
-        case COMMANDCODE_CONFIG.type: {
+        case COMMANDCODEBRIDGE_CONFIG.type: {
           const result = await refreshWithConfig(
-            COMMANDCODE_CONFIG,
-            setCommandcodeQuota,
-            getScopedQuotaState(COMMANDCODE_CONFIG, baseQuotaStores.commandcodeQuota, row.raw)
+            COMMANDCODEBRIDGE_CONFIG,
+            setCommandcodebridgeQuota,
+            getScopedQuotaState(COMMANDCODEBRIDGE_CONFIG, baseQuotaStores.commandcodebridgeQuota, row.raw)
           );
           if (result?.state.status === 'error') {
             return {
               status: 'error',
-              error: result.state.error ?? t('commandcode_quota.request_failed'),
+              error: result.state.error ?? t('commandcodebridge_quota.request_failed'),
               errorStatus: result.state.errorStatus,
             };
           }
@@ -6582,7 +6582,7 @@ export function AccountsPage() {
       setAntigravityQuota,
       setClaudeQuota,
       setClinePassQuota,
-      setCommandcodeQuota,
+      setCommandcodebridgeQuota,
       setCodexQuota,
       setDevinQuota,
       setKimiQuota,

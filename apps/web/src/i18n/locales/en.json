@@ -2324,16 +2324,16 @@
     "invalid_response": "Invalid Cline Pass quota response",
     "empty": "No Cline Pass quota data"
   },
-  "commandcode_quota": {
-    "title": "CommandCode quota",
+  "commandcodebridge_quota": {
+    "title": "CommandCodeBridge quota",
     "five_hour": "5-hour limit",
     "weekly": "Weekly limit",
     "monthly": "Monthly limit",
-    "missing_identity": "Unable to identify the CommandCode credential",
-    "disabled": "CommandCode credential is disabled",
-    "request_failed": "Failed to fetch CommandCode quota",
-    "invalid_response": "Invalid CommandCode quota response",
-    "empty": "No CommandCode quota data"
+    "missing_identity": "Unable to identify the CommandCodeBridge credential",
+    "disabled": "CommandCodeBridge credential is disabled",
+    "request_failed": "Failed to fetch CommandCodeBridge quota",
+    "invalid_response": "Invalid CommandCodeBridge quota response",
+    "empty": "No CommandCodeBridge quota data"
   },
   "claude_quota": {
     "title": "Claude Quota",

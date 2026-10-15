@@ -1,17 +1,17 @@
 /**
- * CommandCode plugin quota types.
+ * CommandCodeBridge plugin quota types.
  */
 
 import type { CredentialScopedQuotaState } from './quota';
 
-export interface CommandCodeQuotaWindow {
+export interface CommandCodeBridgeQuotaWindow {
   id: string;
   usedPercent: number | null;
   remainingPercent: number | null;
   resetAtMs: number | null;
 }
 
-export interface CommandCodeQuotaCredits {
+export interface CommandCodeBridgeQuotaCredits {
   monthly: number | null;
   purchased: number | null;
   free: number | null;
@@ -20,19 +20,19 @@ export interface CommandCodeQuotaCredits {
   total: number | null;
 }
 
-export interface CommandCodeQuotaData {
-  windows: CommandCodeQuotaWindow[];
+export interface CommandCodeBridgeQuotaData {
+  windows: CommandCodeBridgeQuotaWindow[];
   planType: string | null;
   planEndMs: number | null;
   observedAtMs: number | null;
   checkedAtMs: number | null;
-  credits: CommandCodeQuotaCredits;
+  credits: CommandCodeBridgeQuotaCredits;
   error?: string;
   providerStatus: string;
 }
 
-export interface CommandCodeQuotaState
-  extends CommandCodeQuotaData,
+export interface CommandCodeBridgeQuotaState
+  extends CommandCodeBridgeQuotaData,
     CredentialScopedQuotaState {
   status: 'idle' | 'loading' | 'success' | 'error';
   fetchedAtMs?: number;

@@ -13,5 +13,5 @@ export * from './oauth';
 export * from './log';
 export * from './quota';
 export * from './clinePassQuota';
-export * from './commandcodeQuota';
+export * from './commandcodebridgeQuota';
 export * from './plugin';

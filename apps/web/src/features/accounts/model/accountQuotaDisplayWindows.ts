@@ -1,7 +1,7 @@
 import type { TFunction } from 'i18next';
 import { getCredentialScopedQuotaState } from '@/utils/quota/credentialScope';
 import { getClinePassQuotaWindowLabel } from '@/utils/quota/clinePassDisplay';
-import { getCommandCodeQuotaWindowLabel } from '@/utils/quota/commandcodeDisplay';
+import { getCommandCodeBridgeQuotaWindowLabel } from '@/utils/quota/commandcodebridgeDisplay';
 import type {
   AuthFileItem,
   ClaudeExtraUsage,
@@ -45,7 +45,7 @@ export type AccountQuotaWindowSource =
   | 'codex'
   | 'claude'
   | 'cline-pass'
-  | 'commandcode'
+  | 'commandcodebridge'
   | 'antigravity'
   | 'devin'
   | 'kimi'
@@ -842,16 +842,16 @@ const CLINE_PASS_WINDOW_SECONDS: Partial<Record<AccountQuotaWindowKind, number>>
 const clinePassWindowSeconds = (kind: AccountQuotaWindowKind): number | null =>
   CLINE_PASS_WINDOW_SECONDS[kind] ?? null;
 
-// CommandCode reports a reset timestamp per limit, so a window start is derived as
+// CommandCodeBridge reports a reset timestamp per limit, so a window start is derived as
 // the reset timestamp minus the window length, mirroring the Cline Pass limits.
-const COMMANDCODE_WINDOW_SECONDS: Partial<Record<AccountQuotaWindowKind, number>> = {
+const COMMANDCODEBRIDGE_WINDOW_SECONDS: Partial<Record<AccountQuotaWindowKind, number>> = {
   five_hour: 5 * 3600,
   weekly: 7 * 86400,
   monthly: 30 * 86400,
 };
 
-const commandcodeWindowSeconds = (kind: AccountQuotaWindowKind): number | null =>
-  COMMANDCODE_WINDOW_SECONDS[kind] ?? null;
+const commandcodebridgeWindowSeconds = (kind: AccountQuotaWindowKind): number | null =>
+  COMMANDCODEBRIDGE_WINDOW_SECONDS[kind] ?? null;
 
 export const buildAccountQuotaDisplayWindows = (
   row: AccountRow,
@@ -889,17 +889,17 @@ export const buildAccountQuotaDisplayWindows = (
     }
   }
 
-  if (row.provider === 'commandcode') {
-    const quota = getCredentialScopedQuotaState(options.stores.commandcodeQuota, row.raw);
+  if (row.provider === 'commandcodebridge') {
+    const quota = getCredentialScopedQuotaState(options.stores.commandcodebridgeQuota, row.raw);
     if (quota) {
       return quota.windows.map((window) => {
         const kind = ['five_hour', 'weekly', 'monthly'].includes(window.id)
           ? (window.id as AccountQuotaWindowKind)
           : 'unknown';
-        const duration = commandcodeWindowSeconds(kind);
+        const duration = commandcodebridgeWindowSeconds(kind);
         return buildAccountQuotaDisplayWindow({
-          key: `commandcode:${window.id}`,
-          label: getCommandCodeQuotaWindowLabel(window.id, options.t),
+          key: `commandcodebridge:${window.id}`,
+          label: getCommandCodeBridgeQuotaWindowLabel(window.id, options.t),
           kind,
           remainingPercent: window.remainingPercent,
           usedPercent: window.usedPercent,
@@ -908,7 +908,7 @@ export const buildAccountQuotaDisplayWindows = (
           resetAccuracy: window.resetAtMs !== null ? 'exact' : 'unknown',
           limitWindowSeconds: duration,
           windowMode: duration !== null ? 'fixed' : 'unknown',
-          source: 'commandcode',
+          source: 'commandcodebridge',
           observedAtMs: quota.observedAtMs,
           nowMs: options.nowMs,
         });

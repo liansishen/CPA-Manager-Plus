@@ -3,7 +3,7 @@ import type {
   AuthFileItem,
   ClaudeQuotaState,
   ClinePassQuotaState,
-  CommandCodeQuotaState,
+  CommandCodeBridgeQuotaState,
   CodexQuotaState,
   CodexSpendControlLimit,
   DevinQuotaState,
@@ -79,7 +79,7 @@ export interface AccountQuotaStores {
   antigravityQuota: Record<string, AntigravityQuotaState>;
   claudeQuota: Record<string, ClaudeQuotaState>;
   clinePassQuota: Record<string, ClinePassQuotaState>;
-  commandcodeQuota: Record<string, CommandCodeQuotaState>;
+  commandcodebridgeQuota: Record<string, CommandCodeBridgeQuotaState>;
   codexQuota: Record<string, CodexQuotaState>;
   devinQuota: Record<string, DevinQuotaState>;
   kimiQuota: Record<string, KimiQuotaState>;
@@ -1038,8 +1038,8 @@ export const resolveAccountQuota = (
       : summary;
   }
 
-  if (provider === 'commandcode') {
-    const quota = getCredentialScopedQuotaState(stores.commandcodeQuota, file);
+  if (provider === 'commandcodebridge') {
+    const quota = getCredentialScopedQuotaState(stores.commandcodebridgeQuota, file);
     if (!quota) return emptyQuota(filePlanType);
     const planType = quota.planType ?? filePlanType;
     if (quota.status === 'loading') return loadingQuota(planType);

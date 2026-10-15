@@ -1,5 +1,5 @@
 /**
- * Parser and request handling for the CommandCode plugin credential usage API.
+ * Parser and request handling for the CommandCodeBridge plugin credential usage API.
  *
  * The plugin is addressed by credential file identity, never by authIndex.
  */
@@ -7,40 +7,40 @@
 import type { TFunction } from 'i18next';
 import type {
   AuthFileItem,
-  CommandCodeQuotaCredits,
-  CommandCodeQuotaData,
-  CommandCodeQuotaWindow,
+  CommandCodeBridgeQuotaCredits,
+  CommandCodeBridgeQuotaData,
+  CommandCodeBridgeQuotaWindow,
 } from '@/types';
 import type { ApiClientRequestScope } from '@/services/api/client';
 import { apiClient, createScopedApiRequestConfig } from '@/services/api/client';
 import { isDisabledAuthFile } from './validators';
 
-export const COMMANDCODE_USAGE_PATH = '/commandcode/credentials/usage';
+export const COMMANDCODEBRIDGE_USAGE_PATH = '/commandcodebridge/credentials/usage';
 
-export type CommandCodeQuotaErrorCode =
+export type CommandCodeBridgeQuotaErrorCode =
   | 'missing_identity'
   | 'disabled'
   | 'request_failed'
   | 'invalid_response';
 
-export class CommandCodeQuotaError extends Error {
+export class CommandCodeBridgeQuotaError extends Error {
   readonly status?: number;
 
-  constructor(code: CommandCodeQuotaErrorCode, status?: number, message?: string) {
+  constructor(code: CommandCodeBridgeQuotaErrorCode, status?: number, message?: string) {
     super(message ?? code);
-    this.name = 'CommandCodeQuotaError';
+    this.name = 'CommandCodeBridgeQuotaError';
     this.status = status;
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }
 
-export interface ParseCommandCodeQuotaOptions {
+export interface ParseCommandCodeBridgeQuotaOptions {
   requestedId?: string;
   checkedAtMs?: number;
 }
 
-const COMMANDCODE_FILE_PATTERN = /^commandcode-[A-Za-z0-9_-]+\.json$/;
-const COMMANDCODE_ID_PATTERN = /^commandcode-[A-Za-z0-9_-]+$/;
+const COMMANDCODEBRIDGE_FILE_PATTERN = /^commandcodebridge-[A-Za-z0-9_-]+\.json$/;
+const COMMANDCODEBRIDGE_ID_PATTERN = /^commandcodebridge-[A-Za-z0-9_-]+$/;
 
 const stripJson = (value: string): string => value.trim().replace(/\.json$/i, '');
 
@@ -105,7 +105,7 @@ const normalizeTimestampMs = (value: unknown): number | null => {
   return Number.isFinite(ms) && ms > 0 ? ms : null;
 };
 
-export const emptyCommandCodeCredits = (): CommandCodeQuotaCredits => ({
+export const emptyCommandCodeBridgeCredits = (): CommandCodeBridgeQuotaCredits => ({
   monthly: null,
   purchased: null,
   free: null,
@@ -114,9 +114,9 @@ export const emptyCommandCodeCredits = (): CommandCodeQuotaCredits => ({
   total: null,
 });
 
-const parseCredits = (value: unknown): CommandCodeQuotaCredits => {
+const parseCredits = (value: unknown): CommandCodeBridgeQuotaCredits => {
   const record = asRecord(value);
-  if (!record) return emptyCommandCodeCredits();
+  if (!record) return emptyCommandCodeBridgeCredits();
   return {
     monthly: readNonNegativeNumber(record.monthly),
     purchased: readNonNegativeNumber(record.purchased),
@@ -128,15 +128,15 @@ const parseCredits = (value: unknown): CommandCodeQuotaCredits => {
 };
 
 /**
- * Strict parser for CommandCode plugin usage payloads. Returns `null` for malformed
+ * Strict parser for CommandCodeBridge plugin usage payloads. Returns `null` for malformed
  * input (non-object, bad JSON, missing id, missing limits on a success response).
  * Non-ok statuses still surface data, using the root error string and preserving any
  * cached windows and `updated_at`.
  */
-export function parseCommandCodeQuotaPayload(
+export function parseCommandCodeBridgeQuotaPayload(
   payload: unknown,
-  options: ParseCommandCodeQuotaOptions = {}
-): CommandCodeQuotaData | null {
+  options: ParseCommandCodeBridgeQuotaOptions = {}
+): CommandCodeBridgeQuotaData | null {
   let body = payload;
   if (typeof body === 'string') {
     try {
@@ -160,7 +160,7 @@ export function parseCommandCodeQuotaPayload(
   if (ok && !limits) return null;
 
   const plan = asRecord(root.plan);
-  const windows: CommandCodeQuotaWindow[] = [];
+  const windows: CommandCodeBridgeQuotaWindow[] = [];
   if (limits) {
     for (const entry of limits) {
       const record = asRecord(entry);
@@ -206,39 +206,39 @@ const readErrorStatus = (error: unknown): number | undefined => {
 /** Resolve the plugin id from a standard file name or an explicit, consistent id. */
 const resolveRequestedId = (file: AuthFileItem): string | null => {
   const name = typeof file.name === 'string' ? file.name.trim() : '';
-  if (COMMANDCODE_FILE_PATTERN.test(name)) return stripJson(name);
+  if (COMMANDCODEBRIDGE_FILE_PATTERN.test(name)) return stripJson(name);
 
   const explicitId = typeof file.id === 'string' ? file.id.trim() : '';
-  if (COMMANDCODE_ID_PATTERN.test(explicitId)) return explicitId;
+  if (COMMANDCODEBRIDGE_ID_PATTERN.test(explicitId)) return explicitId;
   return null;
 };
 
-export const fetchCommandCodeQuota = async (
+export const fetchCommandCodeBridgeQuota = async (
   file: AuthFileItem,
   t: TFunction,
   requestScope?: ApiClientRequestScope
-): Promise<CommandCodeQuotaData> => {
+): Promise<CommandCodeBridgeQuotaData> => {
   const resolveMsg = (code: string, fallback: string): string => {
     if (!t) return fallback;
-    const key = `commandcode_quota.${code}`;
+    const key = `commandcodebridge_quota.${code}`;
     const translated = t(key);
     return translated && translated !== key ? translated : fallback;
   };
 
   const requestedId = resolveRequestedId(file);
   if (!requestedId) {
-    throw new CommandCodeQuotaError(
+    throw new CommandCodeBridgeQuotaError(
       'missing_identity',
       undefined,
-      resolveMsg('missing_identity', 'Missing CommandCode credential identity.')
+      resolveMsg('missing_identity', 'Missing CommandCodeBridge credential identity.')
     );
   }
 
   if (isDisabledAuthFile(file)) {
-    throw new CommandCodeQuotaError(
+    throw new CommandCodeBridgeQuotaError(
       'disabled',
       undefined,
-      resolveMsg('disabled', 'CommandCode credential is disabled.')
+      resolveMsg('disabled', 'CommandCodeBridge credential is disabled.')
     );
   }
 
@@ -249,21 +249,21 @@ export const fetchCommandCodeQuota = async (
 
   let payload: unknown;
   try {
-    payload = await apiClient.get(COMMANDCODE_USAGE_PATH, config);
+    payload = await apiClient.get(COMMANDCODEBRIDGE_USAGE_PATH, config);
   } catch (error) {
-    throw new CommandCodeQuotaError(
+    throw new CommandCodeBridgeQuotaError(
       'request_failed',
       readErrorStatus(error),
-      resolveMsg('request_failed', 'CommandCode usage request failed.')
+      resolveMsg('request_failed', 'CommandCodeBridge usage request failed.')
     );
   }
 
-  const data = parseCommandCodeQuotaPayload(payload, { requestedId });
+  const data = parseCommandCodeBridgeQuotaPayload(payload, { requestedId });
   if (!data) {
-    throw new CommandCodeQuotaError(
+    throw new CommandCodeBridgeQuotaError(
       'invalid_response',
       undefined,
-      resolveMsg('invalid_response', 'CommandCode usage response was invalid.')
+      resolveMsg('invalid_response', 'CommandCodeBridge usage response was invalid.')
     );
   }
 

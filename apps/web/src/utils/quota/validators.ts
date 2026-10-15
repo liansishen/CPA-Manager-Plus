@@ -81,10 +81,10 @@ export function isClinePassFile(file: AuthFileItem): boolean {
   return resolveAuthProvider(file) === 'cline-pass';
 }
 
-const COMMANDCODE_FILE_PATTERN = /^commandcode-[A-Za-z0-9_-]+\.json$/;
+const COMMANDCODEBRIDGE_FILE_PATTERN = /^commandcodebridge-[A-Za-z0-9_-]+\.json$/;
 
-export function isCommandCodeFile(file: AuthFileItem): boolean {
-  if (resolveAuthProvider(file) === 'commandcode') return true;
+export function isCommandCodeBridgeFile(file: AuthFileItem): boolean {
+  if (resolveAuthProvider(file) === 'commandcodebridge') return true;
   const name = typeof file.name === 'string' ? file.name.trim() : '';
-  return COMMANDCODE_FILE_PATTERN.test(name);
+  return COMMANDCODEBRIDGE_FILE_PATTERN.test(name);
 }

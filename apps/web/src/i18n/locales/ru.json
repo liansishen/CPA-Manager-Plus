@@ -2328,16 +2328,16 @@
     "invalid_response": "Некорректный ответ квоты Cline Pass",
     "empty": "Нет данных о квоте Cline Pass"
   },
-  "commandcode_quota": {
-    "title": "Квота CommandCode",
+  "commandcodebridge_quota": {
+    "title": "Квота CommandCodeBridge",
     "five_hour": "Лимит за 5 часов",
     "weekly": "Недельный лимит",
     "monthly": "Месячный лимит",
-    "missing_identity": "Не удалось определить учётные данные CommandCode",
-    "disabled": "Учётные данные CommandCode отключены",
-    "request_failed": "Не удалось получить квоту CommandCode",
-    "invalid_response": "Некорректный ответ квоты CommandCode",
-    "empty": "Нет данных о квоте CommandCode"
+    "missing_identity": "Не удалось определить учётные данные CommandCodeBridge",
+    "disabled": "Учётные данные CommandCodeBridge отключены",
+    "request_failed": "Не удалось получить квоту CommandCodeBridge",
+    "invalid_response": "Некорректный ответ квоты CommandCodeBridge",
+    "empty": "Нет данных о квоте CommandCodeBridge"
   },
   "claude_quota": {
     "title": "Квота Claude",
