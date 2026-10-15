@@ -3,7 +3,7 @@ import iconAntigravity from '@/assets/icons/antigravity.svg';
 import iconClaude from '@/assets/icons/claude.svg';
 import iconCline from '@/assets/icons/cline.svg';
 import iconClineDark from '@/assets/icons/cline-dark.svg';
-import iconCommandCodeBridge from '@/assets/icons/commandcodebridge.svg';
+import iconCommandCodeBridge from '@/assets/icons/commandcodebridge.png';
 import iconCodex from '@/assets/icons/codex.svg';
 import iconDevin from '@/assets/icons/devin.svg';
 import iconDevinDark from '@/assets/icons/devin-dark.svg';
