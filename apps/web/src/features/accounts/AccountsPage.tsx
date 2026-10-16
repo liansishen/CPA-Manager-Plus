@@ -1317,6 +1317,8 @@ export function AccountsPage() {
     selectedFiles,
     selectionCount,
     loading,
+    initialLoading,
+    hasLoaded,
     error,
     uploading,
     authJsonPasteSaving,
@@ -9776,7 +9778,7 @@ export function AccountsPage() {
                       latestRequest={ctx.accountHistory?.latest_request}
                       recentRequests={ctx.accountHistory?.recent_requests}
                       loading={accountHistoryLoading && !ctx.accountHistory}
-                      unavailable={Boolean(ctx.accountHistoryError)}
+                      unavailable={Boolean(ctx.accountHistoryError) && !ctx.accountHistory}
                       locale={i18n.language}
                       onCopy={copyTextWithNotification}
                     />
@@ -10227,15 +10229,15 @@ export function AccountsPage() {
 
   const renderAccountsOverview = () => (
     <>
-      <AccountMetricsGrid metrics={metrics} />
+      {hasLoaded ? <AccountMetricsGrid metrics={metrics} /> : null}
       {error ? <div className={styles.errorBox}>{error}</div> : null}
-      {loading ? (
+      {initialLoading ? (
         <div className={styles.loadingPanel}>
           <LoadingSpinner />
         </div>
-      ) : (
+      ) : hasLoaded ? (
         renderAccountCards()
-      )}
+      ) : null}
       {renderDetailDrawer()}
     </>
   );
@@ -10310,6 +10312,7 @@ export function AccountsPage() {
         <OAuthExcludedCard
           disableControls={disableControls}
           loadState={oauthState.excludedError}
+          hasLoaded={oauthState.excludedLoaded}
           excluded={oauthState.excluded}
           onRetry={loadOauthExcluded}
           onAdd={() => openOauthExcludedEditor()}
@@ -10324,6 +10327,7 @@ export function AccountsPage() {
           onEditProvider={openOauthModelAliasEditor}
           onDeleteProvider={oauthState.deleteModelAlias}
           loadState={oauthState.modelAliasError}
+          hasLoaded={oauthState.modelAliasLoaded}
           modelAlias={oauthState.modelAlias}
           onRetry={loadOauthModelAlias}
           allProviderModels={oauthState.allProviderModels}
