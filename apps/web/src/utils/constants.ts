@@ -37,6 +37,7 @@ export const STORAGE_KEY_VISUAL_EFFECTS = 'cli-proxy-visual-effects';
 export const STORAGE_KEY_LANGUAGE = 'cli-proxy-language';
 export const STORAGE_KEY_SIDEBAR = 'cli-proxy-sidebar-collapsed';
 export const STORAGE_KEY_QUOTA_CACHE = 'cli-proxy-quota-cache';
+export const STORAGE_KEY_QUOTA_DISPLAY_PREFERENCES = 'cli-proxy-quota-display-preferences';
 
 // 语言配置
 export const LANGUAGE_ORDER = defineLanguageOrder(['zh-CN', 'zh-TW', 'en', 'ru'] as const);

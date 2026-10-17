@@ -23,6 +23,7 @@ import {
   inferCodexQuotaScopeFromProviderWindowId,
   isCodexMainQuotaModelScope,
 } from '@/utils/quota/codexQuota';
+import { filterAntigravityQuotaGroups } from '@/utils/quota/antigravityQuotaDisplay';
 import type { AccountRow } from './accountRows';
 import {
   hasConfirmedXaiBillingEntitlement,
@@ -91,6 +92,7 @@ export interface BuildAccountQuotaDisplayWindowsOptions {
   translateQuotaWindowLabel: TranslateQuotaWindowLabel;
   t: TFunction;
   nowMs?: number;
+  showAntigravityClaudeQuota?: boolean;
 }
 
 const ANTIGRAVITY_GROUP_LABEL_KEYS = new Map<string, string>([
@@ -561,7 +563,10 @@ const buildAntigravityQuotaDisplayWindows = (
   options: BuildAccountQuotaDisplayWindowsOptions
 ): AccountQuotaDisplayWindow[] => {
   const quota = getCredentialScopedQuotaState(options.stores.antigravityQuota, row.raw);
-  const groups = quota?.groups ?? [];
+  const groups = filterAntigravityQuotaGroups(
+    quota?.groups ?? [],
+    options.showAntigravityClaudeQuota !== false
+  );
   return groups.flatMap((group) => {
     const groupLabel = translateAntigravityQuotaLabel(
       group.label,

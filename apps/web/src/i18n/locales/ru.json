@@ -1626,6 +1626,8 @@
     "quota_source_observed_header": "Данные последнего ответа",
     "quota_source_none": "Нет данных квоты",
     "quota_details_only": "Квота доступна в деталях",
+    "antigravity_show_claude_quota": "Показывать квоту Claude",
+    "antigravity_show_claude_quota_hint": "Когда выключено, группа квоты Claude скрывается в управлении учетными данными и мониторинге запросов.",
     "quota_brief_remaining": "Осталось {{percent}}",
     "quota_remaining_short": "Ост. {{percent}}",
     "quota_used_short": "Исп.",

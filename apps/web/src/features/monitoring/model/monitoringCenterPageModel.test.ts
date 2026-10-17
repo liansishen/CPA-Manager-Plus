@@ -675,6 +675,48 @@ describe('monitoringCenterPageModel account quota', () => {
     expect(antigravityEntry?.windows[0]?.remainingPercent).toBe(40);
   });
 
+  it('omits Antigravity Claude windows when the display preference is off', () => {
+    const file = {
+      name: 'antigravity-quota.json',
+      type: 'antigravity',
+      provider: 'antigravity',
+      authIndex: '1',
+    };
+    const target = createTarget({
+      key: 'antigravity::1::antigravity-quota.json',
+      provider: 'antigravity',
+      authIndex: '1',
+      fileName: file.name,
+      file,
+    });
+    const stores = emptyQuotaStores();
+    stores.antigravityQuota[getQuotaCredentialStoreKey(file)] = {
+      status: 'success',
+      authFileKey: getQuotaCredentialStoreKey(file),
+      authFileName: file.name,
+      authIndex: '1',
+      authFileIdentityVerified: true,
+      groups: [
+        {
+          id: 'gemini',
+          label: 'Gemini models',
+          buckets: [{ id: 'weekly', label: 'Weekly', remainingFraction: 0.7 }],
+        },
+        {
+          id: 'claude-gpt',
+          label: 'Claude and GPT models',
+          buckets: [{ id: 'weekly', label: 'Weekly', remainingFraction: 0.3 }],
+        },
+      ],
+    };
+
+    const entry = buildCachedAccountQuotaEntry(target, stores, t, false);
+
+    expect(entry?.windows).toEqual([
+      expect.objectContaining({ label: 'Gemini models · Weekly', remainingPercent: 70 }),
+    ]);
+  });
+
   it('uses shared Provider quota as the base while preserving partial Header evidence', () => {
     const file = {
       name: 'codex-header.json',

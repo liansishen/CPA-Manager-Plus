@@ -16,6 +16,7 @@ export {
   isQuotaCacheGenerationCurrent,
   useQuotaStore,
 } from './useQuotaStore';
+export { useQuotaDisplayPreferencesStore } from './useQuotaDisplayPreferencesStore';
 export { useOpenAIEditDraftStore } from './useOpenAIEditDraftStore';
 export { useClaudeEditDraftStore } from './useClaudeEditDraftStore';
 export {

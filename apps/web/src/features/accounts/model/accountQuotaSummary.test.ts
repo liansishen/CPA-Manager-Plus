@@ -476,6 +476,33 @@ describe('resolveAccountQuota', () => {
     expect(resolveAccountQuota(file, stores).planType).toBe('Antigravity Future');
   });
 
+  it('excludes Antigravity Claude groups from the summary when the display preference is off', () => {
+    const file = { name: 'ag.json', type: 'antigravity', authIndex: 'ag-1' } as AuthFileItem;
+    const stores = emptyStores();
+    stores.antigravityQuota[file.name] = {
+      ...buildQuotaCredentialIdentity(file),
+      status: 'success',
+      groups: [
+        {
+          id: 'gemini',
+          label: 'Gemini models',
+          buckets: [{ id: 'weekly', label: 'Weekly limit', remainingFraction: 0.8 }],
+        },
+        {
+          id: 'claude-gpt',
+          label: 'Claude and GPT models',
+          buckets: [{ id: 'weekly', label: 'Weekly limit', remainingFraction: 0 }],
+        },
+      ],
+    };
+
+    expect(resolveAccountQuota(file, stores).groupedAvailabilityState).toBe('partial');
+    expect(
+      resolveAccountQuota(file, stores, { showAntigravityClaudeQuota: false })
+        .groupedAvailabilityState
+    ).toBe('available');
+  });
+
   it('resolves Devin quota summary choosing the limiting window and preserving live plan', () => {
     const file = { name: 'devin.json', type: 'devin', authIndex: 'd-1' };
     const stores = emptyStores();

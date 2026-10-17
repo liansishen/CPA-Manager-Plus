@@ -1,6 +1,7 @@
 import type { TFunction } from 'i18next';
 import { getClinePassQuotaWindowLabel } from '@/utils/quota/clinePassDisplay';
 import { getCommandCodeBridgeQuotaWindowLabel } from '@/utils/quota/commandcodebridgeDisplay';
+import { filterAntigravityQuotaGroups } from '@/utils/quota/antigravityQuotaDisplay';
 import type {
   AntigravityQuotaGroup,
   AntigravityQuotaState,
@@ -1159,9 +1160,10 @@ const buildClaudeAccountQuotaWindows = (
   }));
 
 const buildAntigravityAccountQuotaWindows = (
-  groups: AntigravityQuotaGroup[]
+  groups: AntigravityQuotaGroup[],
+  showClaudeQuota: boolean
 ): AccountQuotaWindow[] =>
-  groups.flatMap((group) =>
+  filterAntigravityQuotaGroups(groups, showClaudeQuota).flatMap((group) =>
     group.buckets.map((bucket) => {
       const reset = resolveAbsoluteQuotaReset(bucket.resetTime);
       return {
@@ -1494,7 +1496,8 @@ const applyProviderQuotaStateMetadata = (
 export const buildAccountQuotaEntryFromProviderState = (
   target: MonitoringAccountQuotaTarget,
   state: MonitoringProviderQuotaState | undefined,
-  t: TFunction
+  t: TFunction,
+  showAntigravityClaudeQuota = true
 ): AccountQuotaEntry | null => {
   if (!state || state.status === 'idle' || state.status === 'loading') return null;
 
@@ -1506,7 +1509,10 @@ export const buildAccountQuotaEntryFromProviderState = (
         {
           ...buildBaseAccountQuotaEntry({ ...target, planType }, t),
           planType,
-          windows: buildAntigravityAccountQuotaWindows(quota.groups),
+          windows: buildAntigravityAccountQuotaWindows(
+            quota.groups,
+            showAntigravityClaudeQuota
+          ),
         },
         quota
       );
@@ -1652,7 +1658,8 @@ export const buildAccountQuotaEntryFromProviderState = (
 export const buildCachedAccountQuotaEntry = (
   target: MonitoringAccountQuotaTarget,
   stores: MonitoringQuotaStores,
-  t: TFunction
+  t: TFunction,
+  showAntigravityClaudeQuota = true
 ): AccountQuotaEntry | null => {
   if (isCustomQuotaTarget(target)) return null;
   switch (target.provider) {
@@ -1660,7 +1667,8 @@ export const buildCachedAccountQuotaEntry = (
       return buildAccountQuotaEntryFromProviderState(
         target,
         getCredentialScopedQuotaState(stores.antigravityQuota, target.file),
-        t
+        t,
+        showAntigravityClaudeQuota
       );
     case 'cline-pass':
       return buildAccountQuotaEntryFromProviderState(

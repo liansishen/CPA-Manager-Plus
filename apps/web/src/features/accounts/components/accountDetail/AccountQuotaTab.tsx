@@ -2,6 +2,8 @@ import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { JSX } from 'react';
 import { Button } from '@/components/ui/Button';
+import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
+import { useQuotaDisplayPreferencesStore } from '@/stores';
 import {
   IconBinary,
   IconChartLine,
@@ -142,6 +144,12 @@ export function AccountQuotaTab({
   resetQuotaDisabled,
 }: AccountQuotaTabProps) {
   const { t, i18n } = useTranslation();
+  const showAntigravityClaudeQuota = useQuotaDisplayPreferencesStore(
+    (state) => state.showAntigravityClaudeQuota
+  );
+  const setShowAntigravityClaudeQuota = useQuotaDisplayPreferencesStore(
+    (state) => state.setShowAntigravityClaudeQuota
+  );
   const history = detailView.history;
   const allWindows = detailView.quota.windows;
   const standardWindows = allWindows.filter(
@@ -184,6 +192,19 @@ export function AccountQuotaTab({
           <p>{t('accounts.detail_quota_window_usage_desc')}</p>
         </div>
         <div className={styles.quotaTabActions}>
+          {detailView.identity.provider === 'antigravity' ? (
+            <label
+              className={styles.quotaClaudeToggle}
+              title={t('accounts.antigravity_show_claude_quota_hint')}
+            >
+              <span>{t('accounts.antigravity_show_claude_quota')}</span>
+              <ToggleSwitch
+                checked={showAntigravityClaudeQuota}
+                onChange={setShowAntigravityClaudeQuota}
+                ariaLabel={t('accounts.antigravity_show_claude_quota')}
+              />
+            </label>
+          ) : null}
           <Button
             variant="secondary"
             size="sm"

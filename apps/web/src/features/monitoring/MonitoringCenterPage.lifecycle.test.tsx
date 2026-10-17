@@ -73,6 +73,8 @@ vi.mock('@/stores', async () => {
     useNotificationStore: (selector: (state: Record<string, unknown>) => unknown) =>
       selector({ showNotification: vi.fn(), showConfirmation: vi.fn() }),
     useQuotaStore: quotaStore.useQuotaStore,
+    useQuotaDisplayPreferencesStore: (selector: (state: Record<string, unknown>) => unknown) =>
+      selector({ showAntigravityClaudeQuota: true, setShowAntigravityClaudeQuota: vi.fn() }),
     captureQuotaCacheGeneration: () => 0,
     commitIfQuotaCacheCurrent: (_generation: number, commit: () => void) => {
       commit();

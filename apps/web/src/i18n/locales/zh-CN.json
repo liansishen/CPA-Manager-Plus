@@ -1620,6 +1620,8 @@
     "quota_source_observed_header": "最近请求返回信息",
     "quota_source_none": "暂无额度数据",
     "quota_details_only": "额度仅在详情中显示",
+    "antigravity_show_claude_quota": "显示 Claude 额度",
+    "antigravity_show_claude_quota_hint": "关闭后，凭证管理和请求监控中的 Antigravity 额度将不再显示 Claude 分组。",
     "quota_brief_remaining": "剩余 {{percent}}",
     "quota_remaining_short": "剩余 {{percent}}",
     "quota_used_short": "已用",

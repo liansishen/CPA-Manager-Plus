@@ -149,7 +149,13 @@ import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useInterval } from '@/hooks/useInterval';
 import { useRequestMonitoringAvailability } from '@/hooks/useRequestMonitoringAvailability';
 import { isFileLogsAvailable } from '@/features/logs/logFeatureAvailability';
-import { useAuthStore, useConfigStore, useNotificationStore, useQuotaStore } from '@/stores';
+import {
+  useAuthStore,
+  useConfigStore,
+  useNotificationStore,
+  useQuotaDisplayPreferencesStore,
+  useQuotaStore,
+} from '@/stores';
 import { useUsageHeaderSnapshotStore } from '@/stores/useUsageHeaderSnapshotStore';
 import { useAccountCredentialMutationRevisionStore } from '@/stores/useAccountCredentialMutationRevisionStore';
 import { createCodexInspectionConnectionFingerprint } from '@/features/monitoring/codexInspection';
@@ -288,6 +294,9 @@ export function MonitoringCenterPage() {
   const devinQuota = useQuotaStore((state) => state.devinQuota);
   const kimiQuota = useQuotaStore((state) => state.kimiQuota);
   const xaiQuota = useQuotaStore((state) => state.xaiQuota);
+  const showAntigravityClaudeQuota = useQuotaDisplayPreferencesStore(
+    (state) => state.showAntigravityClaudeQuota
+  );
   const sharedQuotaStores = useMemo<MonitoringQuotaStores>(
     () => ({
       antigravityQuota,
@@ -1107,7 +1116,14 @@ export function MonitoringCenterPage() {
       const state = accountQuotaStatesByRowId[rowId];
       const targets = accountQuotaTargetsByRowId.get(rowId) ?? [];
       const sharedEntries = targets
-        .map((target) => buildCachedAccountQuotaEntry(target, sharedQuotaStores, t))
+        .map((target) =>
+          buildCachedAccountQuotaEntry(
+            target,
+            sharedQuotaStores,
+            t,
+            showAntigravityClaudeQuota
+          )
+        )
         .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
       const stateWithSharedQuota = mergeSharedAccountQuotaState(state, targets, sharedEntries);
       const observedEntries = targets
@@ -1133,6 +1149,7 @@ export function MonitoringCenterPage() {
     accountQuotaTargetsByRowId,
     headerSnapshotLookup,
     sharedQuotaStores,
+    showAntigravityClaudeQuota,
     t,
   ]);
 
@@ -1504,7 +1521,14 @@ export function MonitoringCenterPage() {
         return accountQuotaRefreshQueue.run(requestKey, async () => undefined);
       }
       const cachedEntries = targets
-        .map((target) => buildCachedAccountQuotaEntry(target, sharedQuotaStores, t))
+        .map((target) =>
+          buildCachedAccountQuotaEntry(
+            target,
+            sharedQuotaStores,
+            t,
+            showAntigravityClaudeQuota
+          )
+        )
         .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
       const previousEntriesByKey = new Map(cachedEntries.map((entry) => [entry.key, entry]));
       if (currentState?.targetKey === targetKey) {
@@ -1611,7 +1635,8 @@ export function MonitoringCenterPage() {
             const providerEntry = buildAccountQuotaEntryFromProviderState(
               fallback,
               refreshResult.state,
-              t
+              t,
+              showAntigravityClaudeQuota
             );
             if (refreshResult.status === 'success') {
               return (
@@ -1674,6 +1699,7 @@ export function MonitoringCenterPage() {
       headerSnapshotLookup,
       refreshQuotaForTarget,
       sharedQuotaStores,
+      showAntigravityClaudeQuota,
       t,
     ]
   );

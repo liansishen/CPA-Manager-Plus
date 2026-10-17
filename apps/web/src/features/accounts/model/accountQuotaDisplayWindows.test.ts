@@ -523,6 +523,53 @@ describe('accountQuotaDisplayWindows', () => {
     });
   });
 
+  it('hides Antigravity Claude groups when the display preference is off', () => {
+    const stores = {
+      ...emptyStores(),
+      antigravityQuota: {
+        'ag.json': {
+          status: 'success',
+          groups: [
+            {
+              id: 'gemini',
+              label: 'Gemini models',
+              buckets: [
+                {
+                  id: 'weekly',
+                  label: 'Weekly limit',
+                  window: 'weekly',
+                  remainingFraction: 0.8,
+                },
+              ],
+            },
+            {
+              id: 'claude-gpt',
+              label: 'Claude and GPT models',
+              buckets: [
+                {
+                  id: 'weekly',
+                  label: 'Weekly limit',
+                  window: 'weekly',
+                  remainingFraction: 0.4,
+                },
+              ],
+            },
+          ],
+        },
+      },
+    } satisfies AccountQuotaStores;
+    const row = buildRow({ name: 'ag.json', type: 'antigravity' }, stores);
+
+    const windows = buildAccountQuotaDisplayWindows(row, {
+      stores,
+      translateQuotaWindowLabel,
+      showAntigravityClaudeQuota: false,
+      t,
+    });
+
+    expect(windows.map((window) => window.groupLabel)).toEqual(['Gemini models']);
+  });
+
   it('carries non-Codex fetchedAt through the production forecast chain', () => {
     const fetchedAtMs = Date.parse('2026-07-01T00:00:00Z');
     const resetAtMs = fetchedAtMs + 5 * 60 * 60 * 1000;

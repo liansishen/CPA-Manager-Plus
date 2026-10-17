@@ -1622,6 +1622,8 @@
     "quota_source_observed_header": "Recent request return data",
     "quota_source_none": "No quota data",
     "quota_details_only": "Quota available in details",
+    "antigravity_show_claude_quota": "Show Claude quota",
+    "antigravity_show_claude_quota_hint": "When off, Claude quota groups are hidden in credential management and request monitoring.",
     "quota_brief_remaining": "{{percent}} left",
     "quota_remaining_short": "Rem {{percent}}",
     "quota_used_short": "Used",

@@ -4202,6 +4202,16 @@
   }
 }
 
+.quotaClaudeToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accounts-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
 .quotaSummaryPanel {
   min-width: 0;
   background: var(--accounts-surface);

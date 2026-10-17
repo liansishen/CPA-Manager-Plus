@@ -352,6 +352,7 @@ import {
   publishAccountCredentialMutationRevision,
   useAuthStore,
   useNotificationStore,
+  useQuotaDisplayPreferencesStore,
   useQuotaStore,
   useThemeStore,
 } from '@/stores';
@@ -1382,6 +1383,9 @@ export function AccountsPage() {
   const kimiQuota = useQuotaStore((state) => state.kimiQuota);
   const metaQuota = useQuotaStore((state) => state.metaQuota);
   const xaiQuota = useQuotaStore((state) => state.xaiQuota);
+  const showAntigravityClaudeQuota = useQuotaDisplayPreferencesStore(
+    (state) => state.showAntigravityClaudeQuota
+  );
   const baseQuotaStores = useMemo(
     () => ({
       antigravityQuota,
@@ -4106,8 +4110,17 @@ export function AccountsPage() {
         codexQuotaBySelectionKey.set(selectionKey, quota);
       }
     });
-    return { codexQuotaBySelectionKey, codexHeaderSnapshotBySelectionKey };
-  }, [files, getDisplayCodexHeaderSnapshot, getDisplayCodexQuota]);
+    return {
+      codexQuotaBySelectionKey,
+      codexHeaderSnapshotBySelectionKey,
+      showAntigravityClaudeQuota,
+    };
+  }, [
+    files,
+    getDisplayCodexHeaderSnapshot,
+    getDisplayCodexQuota,
+    showAntigravityClaudeQuota,
+  ]);
 
   const rows = useMemo(
     () =>
@@ -4806,10 +4819,17 @@ export function AccountsPage() {
         stores: baseQuotaStores,
         getDisplayCodexQuota,
         translateQuotaWindowLabel,
+        showAntigravityClaudeQuota,
         t,
       });
     },
-    [baseQuotaStores, getDisplayCodexQuota, t, translateQuotaWindowLabel]
+    [
+      baseQuotaStores,
+      getDisplayCodexQuota,
+      showAntigravityClaudeQuota,
+      t,
+      translateQuotaWindowLabel,
+    ]
   );
   const buildCodexSnapshotDefinitions = useCallback(
     (row: AccountRow, quota: CodexQuotaState | undefined): AccountQuotaWindowDefinition[] =>
@@ -4818,10 +4838,11 @@ export function AccountsPage() {
           stores: baseQuotaStores,
           getDisplayCodexQuota: () => quota,
           translateQuotaWindowLabel,
+          showAntigravityClaudeQuota,
           t,
         })
       ).filter((definition) => definition.provider === CODEX_CONFIG.type),
-    [baseQuotaStores, t, translateQuotaWindowLabel]
+    [baseQuotaStores, showAntigravityClaudeQuota, t, translateQuotaWindowLabel]
   );
   const quotaDisplayWindowsByRowKey = useMemo(() => {
     const result = new Map<string, AccountQuotaDisplayWindow[]>();

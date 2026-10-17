@@ -18,6 +18,7 @@ import {
   parseQuotaResetLabelMs,
   resolveAbsoluteQuotaReset,
 } from '@/utils/quota/formatters';
+import { filterAntigravityQuotaGroups } from '@/utils/quota/antigravityQuotaDisplay';
 import type { UsageHeaderSnapshot } from '@/services/api/usageService';
 import { getAuthFileSelectionKey } from '@/features/authFiles/model/credentialStatus';
 import {
@@ -90,6 +91,7 @@ export interface AccountQuotaStores {
 export interface AccountQuotaOverrides {
   codexQuotaBySelectionKey?: Map<string, CodexQuotaState>;
   codexHeaderSnapshotBySelectionKey?: Map<string, UsageHeaderSnapshot>;
+  showAntigravityClaudeQuota?: boolean;
 }
 
 export type AccountGroupedQuotaAvailabilityState = 'available' | 'partial' | 'exhausted';
@@ -1089,7 +1091,10 @@ export const resolveAccountQuota = (
       return quotaFromError(quota.error, planType, quota.errorStatus, quota.failedAtMs);
     }
     const availability = summarizeGroupedQuotaAvailability(
-      quota.groups.flatMap((group) =>
+      filterAntigravityQuotaGroups(
+        quota.groups,
+        overrides?.showAntigravityClaudeQuota !== false
+      ).flatMap((group) =>
         group.buckets.map((bucket) => {
           const reset = resolveAbsoluteQuotaReset(bucket.resetTime);
           return {

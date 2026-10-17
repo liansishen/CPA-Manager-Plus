@@ -391,6 +391,7 @@ const { mocks } = vi.hoisted(() => {
   return {
     mocks: {
       files: [codexFile] as AuthFileItem[],
+      showAntigravityClaudeQuota: true,
       authFilesLoading: false,
       selectedFiles: new Set<string>(),
       selectionCount: 0,
@@ -992,6 +993,18 @@ vi.mock('@/stores', () => ({
       setXaiQuota: () => void;
     }) => unknown
   ) => selector(mocks.quotaState as Parameters<typeof selector>[0]),
+  useQuotaDisplayPreferencesStore: (
+    selector: (state: {
+      showAntigravityClaudeQuota: boolean;
+      setShowAntigravityClaudeQuota: (value: boolean) => void;
+    }) => unknown
+  ) =>
+    selector({
+      showAntigravityClaudeQuota: mocks.showAntigravityClaudeQuota,
+      setShowAntigravityClaudeQuota: (value: boolean) => {
+        mocks.showAntigravityClaudeQuota = value;
+      },
+    }),
   useThemeStore: (selector: (state: { resolvedTheme: 'light' | 'dark' }) => unknown) =>
     selector({ resolvedTheme: 'light' }),
 }));
