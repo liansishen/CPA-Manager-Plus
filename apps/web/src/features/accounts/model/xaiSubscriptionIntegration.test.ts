@@ -77,6 +77,8 @@ function makeRow(
   const stores: AccountQuotaStores = {
     antigravityQuota: {},
     claudeQuota: {},
+    clinePassQuota: {},
+    commandcodebridgeQuota: {},
     codexQuota: {},
     kimiQuota: {},
     devinQuota: {},
